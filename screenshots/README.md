@@ -14,6 +14,7 @@ Captured from headless test runs (no real camera involved).
 | `shot6-calibrating.png` | Sender: mid-sweep on setting 3 of 6, showing the codes it is actually managing to paint. |
 | `shot6-cal-results.png` | Sender: the ladder with per-setting paint rates, two settings flagged sender-limited, and the receiver's verdict arrived over the ACK channel. |
 | `shot6-recv-verdict.png` | Receiver: all six settings scored, the winner picked on measured KB/s rather than code rate, and the prediction marked as a prediction. |
+| `shot7-bigfile.png` | Receiver on a 12.57 MB transfer (16,476 blocks) in an 800 px window: the ACK code stays on screen, and the block grid widens instead of growing 158 rows deep. |
 
 The `shot6-*` figures come from a simulated optical link — frames are handed to
 the decoder with a code width in camera pixels — so the KB/s and px/module

@@ -69,9 +69,9 @@ input[type=password]{font-family:var(--mono);font-size:13px;background:var(--pan
 .card:fullscreen .qgrid{width:min(97vw,97vh)}
 
 .readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:2px;overflow:hidden}
-.cell{background:var(--panel);padding:10px 12px}
+.cell{background:var(--panel);padding:10px;min-width:0}
 .cell dt{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:0}
-.cell dd{margin:3px 0 0;font-family:var(--mono);font-size:17px;color:var(--ink)}
+.cell dd{margin:3px 0 0;font-family:var(--mono);font-size:17px;color:var(--ink);overflow-wrap:break-word}
 .cell dd.hi{color:var(--accent)}
 .cell dd.sm{font-size:12px}
 
@@ -284,12 +284,15 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
       <div class="cell"><dt>Px / module</dt><dd id="rPpm" class="hi">—</dd></div>
       <div class="cell"><dt>Optics</dt><dd id="rVerdict" class="sm">—</dd></div>
     </dl>
-    <div class="covlabel" style="margin-top:16px"><span>Blocks recovered</span><b id="covPct">0%</b></div>
-    <div class="coverage"><canvas id="cov"></canvas></div>
+    <!-- The ACK code sits above the block grid on purpose. The grid grows with
+         the file, and anything below it gets pushed off a large transfer's
+         screen -- including the one thing the sender's camera needs to see. -->
     <div class="stage" style="margin-top:16px">
       <div class="card small"><canvas id="ackQr"></canvas></div>
       <p class="note" style="text-align:center;margin:0">Show this to the sender's camera for live progress</p>
     </div>
+    <div class="covlabel" style="margin-top:16px"><span>Blocks recovered</span><b id="covPct">0%</b></div>
+    <div class="coverage"><canvas id="cov"></canvas></div>
   </div>
 </section>
 
@@ -1275,6 +1278,17 @@ function drawCoverage(){
   var cvs=$("cov"), K=dec.K;
   var cols=Math.min(K,K>600?100:60);
   var rows=Math.ceil(K/cols);
+  /* The canvas is drawn at 4px per block and then stretched to the panel width,
+     so its height on screen is (rows/cols) x that width. At a fixed 100 columns
+     a 12 MB file gives 158 rows -- a grid half again as tall as the panel is
+     wide, which pushes everything under it off the screen. Widen the grid
+     instead until it is no more than a third as tall as it is wide. Small
+     files never trip this, so their layout is unchanged. */
+  var MAX_RATIO=0.35;
+  if(rows>cols*MAX_RATIO){
+    cols=Math.min(K,Math.ceil(Math.sqrt(K/MAX_RATIO)));
+    rows=Math.ceil(K/cols);
+  }
   cvs.width=cols*4; cvs.height=rows*4;
   var g=cvs.getContext("2d");
   g.fillStyle="#0D1116"; g.fillRect(0,0,cvs.width,cvs.height);
