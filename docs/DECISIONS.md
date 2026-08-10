@@ -180,6 +180,68 @@ invocations in the development environment, which caused confusing
 `ERR_CONNECTION_REFUSED` failures. Each e2e test now starts its own Node HTTP
 server on a distinct port and closes it at the end. Keep this pattern.
 
+## 16. Calibration: the receiver scores, the sender just walks a ladder
+
+"Send test signal" used to hand you 256 KB of noise and a manual protocol in
+`CAMERA.md`: step the preset up, watch the numbers, back off one. That protocol
+is correct and almost nobody would follow it. It now runs itself.
+
+**Why the sender cannot do the measuring.** The sender has no view of its own
+screen. Everything that decides throughput — px/module, whether the engine
+keeps up, whether focus is hunting — is only observable at the camera. So the
+sender walks a fixed ladder of six settings on a fixed clock and records the one
+thing it does know: how many codes it actually painted. The receiver scores.
+
+**Why a fixed ladder and not a closed loop.** Closed-loop rate adaptation is
+listed under "explicitly deferred" below, and the reason still holds: it needs a
+camera on the *sending* machine too, which is the rarer setup. A fixed ladder
+needs no back-channel at all. The ACK channel remains what it always was —
+convenience. If the sender happens to be watching, the winning row applies
+itself; if not, the verdict is on the receiving screen and you click the row.
+
+**Why the rung number goes in the flags byte, and why the version did NOT get
+bumped.** Bits 4-7 of the flags were unused. The rung number lives there, so
+the receiver knows which setting it is looking at without any protocol
+handshake. Invariant #3 says to bump the version on any *frame layout* change —
+this is not one. No field moved, no field changed width, and no decoder reads
+the nibble: a build that has never heard of calibration decodes a rung-marked
+frame exactly as it always did. Bumping would have been the more disruptive
+choice, because two builds of different vintage would then ignore each other
+entirely. `tests/test3.js` pins this: if a rung-marked stream ever stops
+decoding on a rung-blind decoder, that test fails and the version *must* be
+bumped.
+
+**Why the receiver does not run the fountain decoder during a sweep.** Belief
+propagation costs CPU, and CPU is part of what the sweep is measuring. Running
+it would make the measurement a function of itself. During calibration the
+receiver parses the header, counts distinct seeds and tracks geometry — nothing
+more. It also means a sweep cannot half-complete into a phantom file.
+
+**Duplicate seeds are rejected.** The same code sitting on screen across two
+camera frames is not throughput. Without the seed set, a fast camera reading a
+slow screen would report a rate that is really the camera's frame rate.
+
+**Why the ladder is driven at 20 swaps/second, faster than any preset.** The
+point is to make the *receiver* the bottleneck. If the sweep ran at the preset
+rate, the number coming back would be the ladder's ceiling, not the camera's.
+When a rung does hit that ceiling anyway the verdict says so, and recommends
+pushing higher rather than pretending the camera was the limit.
+
+**Ranking is by measured KB/s, not by code rate or px/module.** Goodput is
+self-correcting: a setting too dense to read collapses its own rate. Small
+codes read easily and lose anyway, which is the honest answer. px/module is
+reported as the *explanation*, not the criterion.
+
+**The one extrapolation is labelled as one.** px/module is
+`(pixels the cell spans) / (modules across)`, and the pixel span is fixed by
+where the camera is standing — so a denser code at the same grid is a division,
+not another experiment. The panel offers exactly one such suggestion and prints
+"Predicted, not measured" in front of it. Everything else on that screen was
+observed.
+
+**Discard the first 1.5 s of every rung.** The code size just changed and
+autofocus hunts. Including it would score the transition, not the setting.
+
 ---
 
 ## Explicitly deferred
@@ -194,8 +256,12 @@ session does not have to re-derive it.
   you re-catch frames, you do not re-request specific ones. Persistence
   complexity is not obviously worth it below very large files.
 - **Dual-camera automatic rate adaptation.** The sender could watch the ACK rate
-  and auto-tune fps/grid. Real gains, but it needs both cameras pointed at both
-  screens, which is a rarer setup than the manual tuning workflow.
+  and auto-tune fps/grid continuously. Real gains, but it needs both cameras
+  pointed at both screens, which is a rarer setup than the manual tuning
+  workflow. **Partly superseded by §16:** the calibration sweep gets most of the
+  benefit with one camera, by measuring once rather than adapting continuously.
+  What is still deferred is the *continuous* loop — reacting mid-transfer when
+  someone nudges the laptop.
 - **Colour / multi-layer codes (libcimbar-style).** Substantially higher density,
   but abandons standard QR and therefore every off-the-shelf decoder, including
   the embedded ZXing. Would mean writing a bespoke decoder.

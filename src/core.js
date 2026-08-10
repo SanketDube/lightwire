@@ -116,6 +116,13 @@ var HEADER = 16; /* ver(1) session(4) len(4) blockSize(2) seed(4) flags(1) */
 
 var FLAG_ENC = 1, FLAG_GZ = 2;
 
+/* Flags byte: bit0 FLAG_ENC, bit1 FLAG_GZ, bits2-3 ECC level index,
+   bits 4-7 the calibration rung number (0 = an ordinary transfer).
+   The rung nibble is diagnostic only -- no decoder reads it -- which is why
+   adding it did not need a version bump. See docs/DECISIONS.md #16. */
+function rungOf(flags) { return (flags >> 4) & 15; }
+function withRung(flags, rung) { return ((flags & 0x0F) | ((rung & 15) << 4)) & 255; }
+
 function makeEncoder(container, blockSize, sessionId, flags) {
   flags = flags || 0;
   var K = Math.max(1, Math.ceil(container.length / blockSize));
@@ -294,6 +301,6 @@ async function sha256Hex(b) {
 
 if (typeof module !== "undefined") module.exports = {
   base45Encode, base45Decode, crc32, makeEncoder, makeDecoder, parseHeader,
-  buildContainer, openContainer, HEADER, FLAG_ENC, FLAG_GZ,
+  buildContainer, openContainer, HEADER, FLAG_ENC, FLAG_GZ, rungOf, withRung,
   gzipBytes, gunzipBytes, encryptBytes, decryptBytes, sha256Hex, subtleOK, concatBytes
 };

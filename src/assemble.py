@@ -26,7 +26,8 @@ core = (
     "var LW=(function(){\n" + core +
     "\nreturn {base45Encode:base45Encode,base45Decode:base45Decode,crc32:crc32,makeEncoder:makeEncoder,"
     "makeDecoder:makeDecoder,parseHeader:parseHeader,buildContainer:buildContainer,openContainer:openContainer,"
-    "FLAG_ENC:FLAG_ENC,FLAG_GZ:FLAG_GZ,gzipBytes:gzipBytes,gunzipBytes:gunzipBytes,"
+    "FLAG_ENC:FLAG_ENC,FLAG_GZ:FLAG_GZ,rungOf:rungOf,withRung:withRung,"
+    "gzipBytes:gzipBytes,gunzipBytes:gunzipBytes,"
     "encryptBytes:encryptBytes,decryptBytes:decryptBytes,sha256Hex:sha256Hex,subtleOK:subtleOK};\n})();"
 )
 
@@ -79,7 +80,14 @@ hooks = (
     'window.__q=function(){return frameQ.length};window.__cells=function(){return cellCanvas};'
     'window.__workers=function(){return workers.length};'
     'window.__engine=function(){return getEngine()};window.__hf=handleFrame;'
-    'window.__ppm=function(){return ppmEma};\nsetRole("send");'
+    'window.__ppm=function(){return ppmEma};'
+    'window.__calStart=startCalibration;window.__calRung=function(){return calRung};'
+    'window.__calStats=function(){return calStats};window.__calRec=function(){return calRec};'
+    'window.__rcal=function(){return {runs:calRuns,rec:rcalRec,seen:calSeen}};'
+    'window.__calFinish=finishCal;window.__calLadder=CAL_LADDER;'
+    'window.__calTiming=function(ms,settle,quiet){CAL_MS=ms;CAL_SETTLE=settle;CAL_QUIET=quiet};'
+    'window.__calFps=function(){return CAL_FPS};'
+    'window.__takeRec=takeRecommendation;\nsetRole("send");'
 )
 with open(os.path.join(HERE, "test-copy.html"), "w") as f:
     f.write(out.replace('setRole("send");', hooks))

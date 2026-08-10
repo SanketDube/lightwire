@@ -19,12 +19,120 @@ on real optics yet** — every camera figure in these docs is a forecast from
 first principles and is marked as one. Download-only: there is no hosted demo,
 so nobody is asked to trust a server for an air-gap tool.
 
+> **Built by prompting, not by typing code.** I am not a programmer. Lightwire
+> was designed and written by **Claude Code**, from my prompts, over a handful
+> of sessions — the credit for the code belongs there. I started it because I
+> went looking for a tool that did this well and could not find one.
+> Full story at the bottom: [Who made this, and how](#who-made-this-and-how).
+
+---
+
+## What this actually does, in plain words
+
+Say you have two computers that cannot talk to each other. Different networks.
+No shared drive. No USB allowed, or no USB port you trust. One of them might
+be deliberately kept off the internet — a machine holding keys, records, or
+anything you would rather never touched a network.
+
+You still need to get a file from one to the other.
+
+**Lightwire does it with light.** The first computer turns your file into a
+stream of flickering QR codes on its screen. The second computer watches that
+screen through its webcam and rebuilds the file. Nothing is sent anywhere. The
+only thing crossing the gap is light hitting a lens.
+
+<p align="center">
+  <img src="screenshots/shot4-grid.png" alt="The sending screen: four QR codes side by side, changing several times a second" width="47%">
+  <img src="screenshots/shot3-done.png" alt="The receiving screen: the file rebuilt and the checksum verified" width="47%">
+</p>
+
+*Left: the sending machine. Right: the receiving machine, done.*
+
+### Why it does not break when the camera misses one
+
+This is the part worth understanding, because it is what makes the thing usable.
+
+A naive version would cut your file into numbered pieces and show them in a
+loop: piece 1, piece 2, piece 3. Miss piece 47 and you have to wait for the
+whole loop to come round again, and if the camera is unreliable you may never
+get a clean set.
+
+Lightwire never sends piece 47. **Every code on screen is a fresh scramble of
+random pieces of the file mixed together** (the technique is called a *fountain
+code*, and the mixing is why). Any large enough pile of these scrambles can be
+untangled back into the original — it does not matter *which* ones you caught.
+
+The consequences are the whole point:
+
+- **You can start the camera late.** No beginning to miss.
+- **Missed codes cost nothing.** Blink, cough, walk past — the next one is just
+  as useful as the one you lost.
+- **The sending machine never needs to hear back from you.** It cannot even tell
+  whether anyone is watching. It just keeps pouring.
+
+That is why the sending computer needs no camera, no network and no idea that
+the receiver exists.
+
+### Is it secure?
+
+Two separate answers, and it matters not to blur them.
+
+**No network.** True, and testable. There is not one line of code in it that
+fetches anything. The whole app, including the barcode reader, is one file with
+everything inlined, and a test in this repository blocks every outside request
+and proves it still works.
+
+**Encryption is optional and it is yours to turn on.** Type a passphrase on the
+sending side and the file is locked with AES-256 before it is ever turned into
+codes — even the filename is hidden inside the locked part. The receiver types
+the same phrase to open it. Without a passphrase, anything on that screen is
+readable by any camera in the room, which is exactly the situation encryption
+exists for. Your passphrase is the whole of the security, so make it long.
+
+### How fast?
+
+Fast enough for a document, a key file, a spreadsheet, a config. Not for a
+video. Think in the region of tens of kilobytes per second, set by your webcam
+rather than by either computer — and there is a hard 32 MB limit with a warning,
+because anything bigger takes hours.
+
+You do not have to guess at your own camera. **Click "Send test signal"** and
+the tool spends about forty seconds trying six different settings, then the
+receiving screen tells you in plain language which one your camera can actually
+hold, and the sending screen gives you a button to adopt it.
+
+<p align="center">
+  <img src="screenshots/shot6-recv-verdict.png" alt="The calibration result: six settings scored, the best one highlighted, and a plain-language recommendation" width="72%">
+</p>
+
+*Six settings measured, ranked by what actually got through. The recommendation
+at the bottom is written to be read, not decoded — and anything it guesses
+rather than measured says so.*
+
+### The whole thing, in five steps
+
+1. Copy `lightwire.html` onto both computers. That one file is the entire
+   program — there is nothing to install.
+2. On the **receiving** computer, open it, go to *Receive* and start the camera.
+3. On the **sending** computer, open it and click *Send test signal* once to
+   let it find your camera's best setting. (Skippable. Do it the first time.)
+4. Drag your file onto the sending window. Codes start flowing. Point the
+   camera at that screen and fill the frame.
+5. Wait for **"Complete — checksum verified"** on the receiving side, then click
+   *Save file*. The checksum means the file arrived byte for byte, not roughly.
+
+One catch worth knowing up front: browsers only hand over a camera to a page
+served over `https` or `localhost`, not to a file opened straight off the disk.
+The *sending* machine is fine either way because it needs no camera. On the
+*receiving* machine, see the note under Quickstart.
+
 ---
 
 ## Quickstart
 
 **Sending machine:** open `dist/lightwire.html`, stay on the *Send* tab, drop a
-file in. Codes start streaming immediately.
+file in. Codes start streaming immediately. Click *Send test signal* first if
+you want the tool to pick your settings for you.
 
 **Receiving machine:** open the same file, switch to *Receive*, click
 *Start camera*, point it at the sending screen. Watch the coverage grid fill.
@@ -51,9 +159,10 @@ The sending machine can just double-click the file — it needs no camera.
 | `src/template.html` | UI + app logic, with `__PLACEHOLDER__` slots for the vendored libraries. |
 | `src/assemble.py` | Build script. Inlines everything into `dist/lightwire.html`. |
 | `src/vendor/` | Third-party libraries, vendored deliberately (see `docs/PUBLISHING.md`). |
-| `tests/` | Node codec tests and Puppeteer end-to-end tests. |
+| `tests/` | Node codec tests plus browser end-to-end tests (Puppeteer and Playwright). |
 | `docs/` | Architecture, decision log, testing notes, camera theory, publishing analysis, handoff state. |
 | `screenshots/` | Rendered UI states, captured from the headless test runs. |
+| `LICENSE` · `NOTICE` · `THIRD-PARTY-NOTICES.md` | Apache-2.0, and the attribution every bundled component requires. |
 
 ## Building
 
@@ -106,6 +215,36 @@ No code was taken from any prior optical-transfer tool. The codec, base45
 implementation, container format and wire protocol were written from scratch;
 the projects that informed the design are credited under "Prior art" in
 `THIRD-PARTY-NOTICES.md`.
+
+## Who made this, and how
+
+I am not a coder. I cannot write JavaScript, and I did not write any of this.
+
+Every line in this repository was produced by **[Claude Code](https://claude.com/claude-code)**
+working from my prompts — the codec, the fountain coding, the worker pipeline,
+the barcode engine cascade, the tests, and most of these docs. My part was
+deciding what it should do, saying when the answer was not good enough, and
+knowing what "good enough" looked like. The engineering credit is Claude's.
+
+I started it for the ordinary reason: **I went looking for a tool that moved a
+file across an air gap with a screen and a camera, and everything I found was
+worse than what I wanted.** Some needed an install. Some fell over the moment
+the camera missed a frame. Some were a fork away from a licence I did not want.
+So it got built instead.
+
+Two things follow from that, and it is only fair to say them plainly:
+
+- **Read the code before you trust it with anything that matters.** That advice
+  is not special to this project, but it carries extra weight for a
+  security-adjacent tool whose author cannot audit it line by line. What I can
+  vouch for is stated as verified; what is a forecast is labelled a forecast.
+- **The reasoning is written down on purpose.** `docs/DECISIONS.md` records why
+  things are the way they are, including what was tried and abandoned. If you
+  are reviewing this, start there — it will tell you where the bodies are
+  faster than the source will.
+
+Issues and pull requests are welcome, especially from people who can actually
+read the thing.
 
 ## Read this next
 

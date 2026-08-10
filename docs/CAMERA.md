@@ -51,8 +51,37 @@ which in practice bites harder than resolution.
 
 ## Tuning protocol
 
-1. Sender: click **Send test signal** (256 KB of incompressible noise — no gzip
-   distortion of the numbers, no real file needed).
+**The tool does this for you now.** The manual method is kept below because it
+is still the right mental model, and because it is what you fall back on if you
+want to tune a setting the ladder does not contain.
+
+1. Receiver: start the camera and point it at the sending screen.
+2. Sender: click **Send test signal**.
+3. Fill the frame with the codes and hold steady. Lock focus if the camera
+   offers it. The sweep takes about 40 seconds.
+4. Read the verdict on the **receiving** screen. It names a row number, a grid,
+   a bytes-per-code and a swaps-per-second.
+5. Sender: click **Apply** on that row.
+
+The sweep drives six settings — 1×1 at 600 and 1400 B, 2×2 at 800 and 1200 B,
+3×3 at 800 and 1200 B — each for 6.5 seconds at 20 swaps per second, and ranks
+them by the bytes per second the camera actually recovered. Missing codes
+during a sweep costs nothing, exactly as it does during a real transfer.
+
+Two readings worth understanding:
+
+- **"sender-limited"** on the sending machine's table means it could not paint
+  codes as fast as it was asked to. That is a CPU verdict, not a camera one;
+  a faster machine would score that row higher.
+- **"Predicted, not measured"** in the verdict is arithmetic, not observation.
+  px/module is `(pixels the cell spans) ÷ (modules across)`, and the pixel span
+  is fixed by where the camera is standing, so a denser code at the same grid
+  can be computed rather than tested. Treat it as a hint to try, not a result.
+
+### Doing it by hand
+
+1. Sender: **Send test signal**, then **Skip — just stream** to stop the sweep
+   and hold the current setting.
 2. Start at the **Fast** preset.
 3. Receiver: start camera, fill the frame with the grid.
 4. Lock focus once the image is sharp.

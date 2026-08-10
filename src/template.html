@@ -84,6 +84,20 @@ input[type=password]{font-family:var(--mono);font-size:13px;background:var(--pan
 video{width:100%;max-width:300px;border:1px solid var(--line);border-radius:2px;background:#000;display:block}
 
 .note{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.03em;margin-top:10px}
+.verdict{font-family:var(--mono);font-size:13px;color:var(--ink);line-height:1.6;margin:14px 0 0;
+  border-left:3px solid var(--accent);padding:10px 0 10px 12px;background:var(--panel-2)}
+.verdict b{color:var(--accent);font-weight:400}
+.bar{height:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:2px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s linear}
+table.cal{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;margin-top:14px}
+table.cal th{text-align:left;font-weight:400;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.cal td{padding:7px 8px;border-bottom:1px solid var(--line);color:var(--mute);white-space:nowrap}
+table.cal td.n{color:var(--ink)}
+table.cal tr.win td{color:var(--ink);background:var(--panel-2)}
+table.cal tr.win td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+table.cal button{padding:4px 9px;font-size:10px;letter-spacing:.06em}
+.scrollx{overflow-x:auto}
 .done{border-color:var(--recv);box-shadow:inset 3px 0 0 var(--recv)}
 .fail{border-color:var(--bad);box-shadow:inset 3px 0 0 var(--bad)}
 .done h2,.fail h2{color:var(--ink)}
@@ -118,11 +132,34 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
     <input type="file" id="file" class="hidden">
     <div class="row" style="margin-top:12px">
       <button id="testSig">Send test signal</button>
-      <span class="note" style="margin:0">256 KB of incompressible noise — for tuning speed against your camera without a real file.</span>
+      <span class="note" style="margin:0">Streams 256 KB of incompressible noise through six settings in turn, then the receiver tells you which one your camera actually sustains. Start the camera on the other machine first.</span>
     </div>
+    <p class="note hidden" id="calApplied" style="color:var(--accent)"></p>
     <div class="knob" style="margin-top:16px">
       <label for="pass">Passphrase <b id="passState">off — sends in the clear</b></label>
       <input type="password" id="pass" placeholder="Optional. The receiver types the same phrase to unlock." autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <div class="panel hidden" id="calPanel">
+    <h2 id="calHead">Calibrating</h2>
+    <p id="calNow" style="margin:0;font-family:var(--mono);font-size:13px">—</p>
+    <div class="bar"><i id="calBar"></i></div>
+    <p class="note" id="calHint">Point the receiving camera at this screen and fill the frame. Each setting runs for a few seconds; missed codes cost nothing.</p>
+    <div class="row" id="calRunRow">
+      <button id="calSkip">Skip — just stream</button>
+      <button id="calAbort">Cancel</button>
+    </div>
+    <div id="calResults" class="hidden">
+      <div class="scrollx">
+        <table class="cal" id="calTable"></table>
+      </div>
+      <p class="verdict hidden" id="calVerdict"></p>
+      <p class="note" id="calRead">Read the recommendation on the receiving screen, then click Apply on that row. If you are watching the receiver with a second camera, the winning row fills itself in.</p>
+      <div class="row">
+        <button id="calRerun">Run it again</button>
+        <button id="calDone">Back to file</button>
+      </div>
     </div>
   </div>
 
@@ -205,6 +242,18 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
       <label class="check"><input type="checkbox" id="focusLock"> Lock focus (stops autofocus hunting)</label>
       <input type="range" id="focus" disabled style="margin-top:6px">
     </div>
+  </div>
+
+  <div class="panel hidden" id="rcalPanel">
+    <h2 id="rcalHead">Calibration signal</h2>
+    <p id="rcalNow" style="margin:0;font-family:var(--mono);font-size:13px">—</p>
+    <div class="scrollx"><table class="cal" id="rcalTable"></table></div>
+    <p class="verdict hidden" id="rcalVerdict"></p>
+    <div class="stage hidden" id="rcalAckStage" style="margin-top:16px">
+      <div class="card small"><canvas id="calAckQr"></canvas></div>
+      <p class="note" style="text-align:center;margin:0">Show this to the sender's camera and the winning row applies itself</p>
+    </div>
+    <div class="row" style="margin-top:14px"><button id="rcalDismiss">Dismiss</button></div>
   </div>
 
   <div class="panel hidden" id="progPanel">
@@ -408,7 +457,7 @@ function fmt(n){ return n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/104
 
 /* ================= SENDER ================= */
 var enc=null,sendTimer=null,sent=0,paused=false,sessionId=0,fileMeta=null,beginToken=0;
-var gridN=1,cellCanvas=[];
+var gridN=1,cellCanvas=[],streamT0=0,paintBase=0;
 var ackVideo=$("ackCam"),ackCanvas=document.createElement("canvas"),ackCtx=ackCanvas.getContext("2d",{willReadFrequently:true});
 var ackLoop=null,ackBusy=false;
 
@@ -487,15 +536,34 @@ function buildGrid(){
   }
 }
 
+/* ----- the calibration ladder -----
+   Six settings that span the space the three levers actually reach. The sweep
+   drives each one in turn at CAL_FPS, which is deliberately faster than any
+   preset: it makes the RECEIVER the bottleneck, so what comes back is the
+   camera's ceiling rather than the ladder's. The rung number rides in the
+   frame flags, so the receiver scores each one without a back-channel. */
+var CAL_LADDER=[
+  {g:1,b:600},  {g:1,b:1400},
+  {g:2,b:800},  {g:2,b:1200},
+  {g:3,b:800},  {g:3,b:1200}
+];
+var CAL_FPS=20;      /* swaps per second while sweeping */
+var CAL_MS=6500;     /* how long each rung runs */
+var CAL_SETTLE=1500; /* discarded at the start of a rung: focus hunts, code size changed */
+var CAL_QUIET=2500;  /* receiver: silence this long ends the sweep */
+var calRung=0,calActive=false,calTimer=null,calTick=null,calBytes=null,calRungT0=0,calStats=[],calRec=null,calKnobs=null;
+
+function calLabel(r){ return r.g+"×"+r.g+" · "+r.b+" B"; }
+
 /* ----- knobs & presets ----- */
 $("grid").oninput=function(){$("gridV").textContent=this.value+"×"+this.value;};
-$("grid").onchange=function(){ gridN=+this.value; clearPreset(); if(fileMeta) begin(); };
-$("fps").oninput=function(){$("fpsV").textContent=this.value; clearPreset(); if(sendTimer) restartTimer();};
+$("grid").onchange=function(){ if(calActive) return; gridN=+this.value; clearPreset(); if(fileMeta) begin(); };
+$("fps").oninput=function(){$("fpsV").textContent=this.value; if(calActive) return; clearPreset(); if(sendTimer) restartTimer();};
 $("bs").oninput=function(){$("bsV").textContent=this.value;};
-$("bs").onchange=function(){ clearPreset(); if(fileMeta) begin(); };
-$("gz").onchange=function(){ if(fileMeta) begin(); };
+$("bs").onchange=function(){ if(calActive) return; clearPreset(); if(fileMeta) begin(); };
+$("gz").onchange=function(){ if(calActive) return; if(fileMeta) begin(); };
 $("ecc").oninput=function(){$("eccV").textContent=ECCNAME[+this.value]};
-$("ecc").onchange=function(){ if(fileMeta) begin(); };
+$("ecc").onchange=function(){ if(calActive) return; if(fileMeta) begin(); };
 $("pass").oninput=function(){$("passState").textContent=this.value?"AES-256-GCM":"off — sends in the clear";};
 
 function applyPreset(btn,f,b,g){
@@ -530,11 +598,151 @@ document.addEventListener("paste",function(e){
   var t=cd.getData("text");
   if(t){ e.preventDefault(); startFile(new TextEncoder().encode(t),"clipboard.txt","text/plain"); }
 });
-$("testSig").onclick=function(){
+function testNoise(){
   var n=256*1024, out=new Uint8Array(n);
   var s=0x1F2E3D4C;
   for(var i=0;i<n;i++){ s^=s<<13; s^=s>>>17; s^=s<<5; s>>>=0; out[i]=s&255; }
-  startFile(out,"lightwire-test.bin","application/octet-stream");
+  return out;
+}
+$("testSig").onclick=function(){ startCalibration(); };
+
+/* ================= CALIBRATION SWEEP (sender side) =================
+   The sender cannot see its own codes, so it cannot score itself. It runs the
+   ladder on a fixed clock and records only what it knows -- how many codes it
+   actually painted -- while the receiver scores the optics. Fixed clock, not a
+   closed loop, precisely so the sweep needs no camera on this machine. */
+/* The sweep drives the knobs, so it has to hand them back. Without this the
+   user is left looking at whatever the last rung happened to be -- 3x3 at
+   1200 B -- and would send their next real file at a setting nothing measured. */
+function saveKnobs(){ return {g:$("grid").value,b:$("bs").value,f:$("fps").value}; }
+function restoreKnobs(k){
+  if(!k) return;
+  $("grid").value=k.g; $("gridV").textContent=k.g+"×"+k.g; gridN=+k.g;
+  $("bs").value=k.b;   $("bsV").textContent=k.b;
+  $("fps").value=k.f;  $("fpsV").textContent=k.f;
+}
+function startCalibration(){
+  if(!calBytes) calBytes=testNoise();
+  if(!calKnobs) calKnobs=saveKnobs();
+  calStats=[]; calRec=null; calActive=true; calRung=0;
+  $("calApplied").classList.add("hidden");
+  $("pickPanel").classList.add("hidden");
+  $("knobPanel").classList.add("hidden");
+  $("calResults").classList.add("hidden");
+  $("calRunRow").classList.remove("hidden");
+  $("calVerdict").classList.add("hidden");
+  $("calPanel").classList.remove("hidden");
+  $("calHead").textContent="Calibrating";
+  $("calTable").innerHTML="";
+  nextRung();
+}
+function nextRung(){
+  if(!calActive) return;
+  if(calRung>=1) calStats.push({rung:calRung,cfg:CAL_LADDER[calRung-1],painted:paintRate()});
+  calRung++;
+  if(calRung>CAL_LADDER.length){ endCalibration(); return; }
+  var r=CAL_LADDER[calRung-1];
+  $("grid").value=r.g; $("gridV").textContent=r.g+"×"+r.g; gridN=r.g;
+  $("bs").value=r.b;   $("bsV").textContent=r.b;
+  $("fps").value=CAL_FPS; $("fpsV").textContent=CAL_FPS;
+  clearPreset();
+  fileMeta={bytes:calBytes,name:"lightwire-test.bin",type:"application/octet-stream"};
+  begin();
+  calRungT0=Date.now();
+  calTimer=setTimeout(nextRung,CAL_MS);
+  paintCalProgress();
+  if(!calTick) calTick=setInterval(paintCalProgress,200);
+}
+function paintCalProgress(){
+  if(!calActive) return;
+  var r=CAL_LADDER[calRung-1]; if(!r) return;
+  var el=(Date.now()-calRungT0)/CAL_MS;
+  var left=Math.max(0,Math.ceil((CAL_MS-(Date.now()-calRungT0))/1000));
+  var done=(calRung-1+Math.min(1,el))/CAL_LADDER.length;
+  $("calBar").style.width=Math.round(done*100)+"%";
+  var pr=paintRate();
+  $("calNow").textContent="Setting "+calRung+" of "+CAL_LADDER.length+" — "+calLabel(r)
+    +" · "+left+"s"+(pr?" · painting "+pr.toFixed(0)+" codes/s":"");
+}
+function endCalibration(){
+  calActive=false; calRung=0;
+  if(calTimer){clearTimeout(calTimer);calTimer=null;}
+  if(calTick){clearInterval(calTick);calTick=null;}
+  if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
+  enc=null; fileMeta=null; frameQ=[]; pendingGen=0; genId++;
+  releaseAwake("s");
+  restoreKnobs(calKnobs); calKnobs=null;
+  $("sendPanel").classList.add("hidden");
+  $("knobPanel").classList.remove("hidden");
+  $("calRunRow").classList.add("hidden");
+  $("calResults").classList.remove("hidden");
+  $("calBar").style.width="100%";
+  $("calHead").textContent="Calibration done";
+  $("calNow").textContent="Six settings sent. The measurement is on the receiving screen.";
+  $("calHint").textContent="Nothing is being sent now — the quiet is what tells the receiver the sweep is over.";
+  renderCalTable();
+  showRecommendation();
+}
+/* one row per rung: what was sent, what this machine managed to paint, and a
+   button to adopt it. The optical column is filled in only if the receiver's
+   recommendation reaches us over the ACK channel. */
+function renderCalTable(){
+  var t=$("calTable");
+  var h="<tr><th>#</th><th>Setting</th><th>Painted here</th><th>Nominal</th><th></th></tr>";
+  for(var i=0;i<CAL_LADDER.length;i++){
+    var r=CAL_LADDER[i], s=null;
+    for(var j=0;j<calStats.length;j++) if(calStats[j].rung===i+1) s=calStats[j];
+    var offered=CAL_FPS*r.g*r.g;
+    var painted=s?s.painted:0;
+    var short=painted&&painted<offered*0.85;
+    h+="<tr"+(calRec&&calRec.rung===i+1?' class="win"':"")+">"
+      +"<td class='n'>"+(i+1)+"</td>"
+      +"<td class='n'>"+calLabel(r)+"</td>"
+      +"<td>"+(painted?painted.toFixed(0)+"/s"+(short?" (sender-limited)":""):"—")+"</td>"
+      +"<td>"+fmt(offered*r.b)+"/s</td>"
+      +"<td><button data-rung='"+(i+1)+"'>Apply</button></td></tr>";
+  }
+  t.innerHTML=h;
+  var btns=t.getElementsByTagName("button");
+  for(var k=0;k<btns.length;k++) btns[k].onclick=function(){ applyRung(+this.getAttribute("data-rung")); };
+}
+function applyRung(n,fps){
+  var r=CAL_LADDER[n-1]; if(!r) return;
+  var f=fps||(calRec&&calRec.rung===n?calRec.fps:CAL_FPS);
+  f=Math.max(2,Math.min(30,Math.round(f)));
+  applyPreset(null,f,r.b,r.g);
+  $("calPanel").classList.add("hidden");
+  $("pickPanel").classList.remove("hidden");
+  $("knobPanel").classList.remove("hidden");
+  $("calApplied").textContent="Signal set to "+calLabel(r)+" · "+f+" swaps/s. Drop a file to send it.";
+  $("calApplied").classList.remove("hidden");
+}
+function cancelCalibration(keepStreaming){
+  var last=calRung;
+  calActive=false; calRung=0;
+  if(calTimer){clearTimeout(calTimer);calTimer=null;}
+  if(calTick){clearInterval(calTick);calTick=null;}
+  $("calPanel").classList.add("hidden");
+  $("knobPanel").classList.remove("hidden");
+  if(!keepStreaming){ restoreKnobs(calKnobs); }
+  calKnobs=null;
+  if(keepStreaming&&last){
+    /* drop the rung marker but keep the codes flowing at the current setting */
+    fileMeta={bytes:calBytes,name:"lightwire-test.bin",type:"application/octet-stream"};
+    begin();
+  } else {
+    stopSender();
+    $("sendPanel").classList.add("hidden");
+    $("pickPanel").classList.remove("hidden");
+  }
+}
+$("calSkip").onclick=function(){ cancelCalibration(true); };
+$("calAbort").onclick=function(){ cancelCalibration(false); };
+$("calRerun").onclick=function(){ startCalibration(); };
+$("calDone").onclick=function(){
+  $("calPanel").classList.add("hidden");
+  $("pickPanel").classList.remove("hidden");
+  $("knobPanel").classList.remove("hidden");
 };
 function load(f){
   if(f.size>32*1024*1024){ alert("That file is "+fmt(f.size)+". Anything over about 32 MB will take hours on a light link — send a smaller file or an archive of the parts you need."); return; }
@@ -555,14 +763,17 @@ function begin(){
   var m=fileMeta; if(!m) return;
   if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
   var blockSize=+$("bs").value;
-  var pass=$("pass").value;
+  /* A calibration rung measures the optical link, so it carries neither gzip
+     nor encryption: the test payload is incompressible anyway, and a PBKDF2
+     pass per rung would only add startup latency to every measurement. */
+  var pass=calRung?"":$("pass").value;
   if(pass&&!LW.subtleOK()){
     alert("Encryption needs a secure page. The browser only enables crypto on https or http://localhost — run  python -m http.server  in this folder and open the page from there.");
     return;
   }
   var container=LW.buildContainer(m.name,m.type,m.bytes);
   var work=Promise.resolve({payload:container,flags:0});
-  if($("gz").checked){
+  if($("gz").checked&&!calRung){
     work=work.then(function(st){
       return LW.gzipBytes(st.payload).then(function(g){
         if(g&&g.length<st.payload.length-64) return {payload:g,flags:st.flags|LW.FLAG_GZ};
@@ -580,6 +791,7 @@ function begin(){
   work.then(function(st){
     if(my!==beginToken) return;
     st.flags|=(+$("ecc").value&3)<<2;
+    st.flags=LW.withRung(st.flags,calRung);
     genId++;
     sessionId=(Math.random()*4294967295)>>>0;
     enc=LW.makeEncoder(st.payload,blockSize,sessionId,st.flags);
@@ -603,8 +815,15 @@ function restartTimer(){
   var fps=+$("fps").value, cells=gridN*gridN;
   $("sEta").textContent=Math.max(1,Math.ceil(enc.K/(fps*cells)))+"s";
   $("sNom").textContent=fmt(fps*cells*(+$("bs").value))+"/s";
+  streamT0=Date.now(); paintBase=sent;   /* re-baseline the rate, keep the count */
   sendTimer=setInterval(tick,1000/fps);
   tick();
+}
+/* codes this machine actually got onto the screen, which is not the same as the
+   rate it was asked for -- the worker queue can run dry at high grid counts */
+function paintRate(){
+  var s=(Date.now()-streamT0)/1000;
+  return (streamT0&&s>0.4)?(sent-paintBase)/s:0;
 }
 function tick(){
   if(paused||!enc) return;
@@ -628,10 +847,17 @@ function tick(){
 $("pause").onclick=function(){
   paused=!paused; this.textContent=paused?"Resume":"Pause";
 };
-$("stop").onclick=function(){ stopSender(); $("sendPanel").classList.add("hidden"); $("pickPanel").classList.remove("hidden"); };
+$("stop").onclick=function(){
+  stopSender();
+  $("sendPanel").classList.add("hidden"); $("calPanel").classList.add("hidden");
+  $("knobPanel").classList.remove("hidden"); $("pickPanel").classList.remove("hidden");
+};
 function stopSender(){
   beginToken++; genId++;
   if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
+  if(calTimer){clearTimeout(calTimer);calTimer=null;}
+  if(calTick){clearInterval(calTick);calTick=null;}
+  calActive=false; calRung=0;
   enc=null; fileMeta=null; frameQ=[]; pendingGen=0;
   stopWatching(); releaseAwake("s");
 }
@@ -662,6 +888,10 @@ function startWatching(){
             if(!txt||txt.indexOf("A1:")!==0) continue;
             var parts=txt.split(":");
             if(parts.length<4) continue;
+            /* trailing "C…" field = the receiver's calibration verdict. Older
+               builds simply never see it; the K=0 it rides with makes them
+               skip the frame instead of misreading it as progress. */
+            for(var c=5;c<parts.length;c++) if(parts[c].charAt(0)==="C") takeRecommendation(parts[c]);
             var got=parseInt(parts[2],16),K=parseInt(parts[3],16);
             var rate=parts.length>4?parseInt(parts[4],16):null;
             if(!K||isNaN(got)) continue;
@@ -679,6 +909,27 @@ function startWatching(){
     });
   }).catch(function(){ $("sAck").textContent="no camera"; });
 }
+/* "C" + rung(2) + grid(1) + bytes(4) + fps(2), all hex */
+function takeRecommendation(field){
+  if(field.length<10) return;
+  var rec={rung:parseInt(field.substr(1,2),16),g:parseInt(field.substr(3,1),16),
+           b:parseInt(field.substr(4,4),16),fps:parseInt(field.substr(8,2),16)};
+  if(!rec.rung||!rec.g||!rec.b||!rec.fps) return;
+  var r=CAL_LADDER[rec.rung-1];
+  if(!r||r.g!==rec.g||r.b!==rec.b) return;   /* ladders disagree: ignore rather than guess */
+  if(calRec&&calRec.rung===rec.rung&&calRec.fps===rec.fps) return;
+  calRec=rec;
+  showRecommendation();
+}
+function showRecommendation(){
+  if(!calRec||$("calResults").classList.contains("hidden")) return;
+  var r=CAL_LADDER[calRec.rung-1]; if(!r) return;
+  renderCalTable();
+  $("calVerdict").innerHTML="The receiver measured setting <b>"+calRec.rung+"</b> as the best it can hold: <b>"
+    +calLabel(r)+"</b> at <b>"+calRec.fps+" swaps per second</b>.";
+  $("calVerdict").classList.remove("hidden");
+  $("calRead").textContent="Click Apply on that row to adopt it.";
+}
 function stopWatching(){
   if(ackLoop){clearInterval(ackLoop);ackLoop=null;}
   ackBusy=false;
@@ -691,6 +942,7 @@ function stopWatching(){
 var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastCov=-1,result=null;
 var activeEngine=null,sessModules=0,ppmEma=0;
 var pendingRaw=null;
+var calRuns={},calLast=0,calEndTimer=null,calSeen=false,rcalRec=null,calPaintAt=0;
 var cam=$("cam"),rCanvas=document.createElement("canvas"),rCtx=rCanvas.getContext("2d",{willReadFrequently:true});
 
 $("startCam").onclick=function(){
@@ -819,6 +1071,7 @@ function handleFrame(txt,codeW){
   try{ bytes=LW.base45Decode(txt); }catch(e){ return; }
   var h=LW.parseHeader(bytes);
   if(!h) return;
+  if(LW.rungOf(h.flags)){ handleCalFrame(txt,codeW,h); return; }
   if(!dec||h.session!==recvSession){
     recvSession=h.session; recvFlags=h.flags; recvBs=h.blockSize;
     sessModules=modulesFor(txt,(h.flags>>2)&3); ppmEma=0;
@@ -842,6 +1095,157 @@ function handleFrame(txt,codeW){
   paint();
   if(dec.isDone()) finish();
 }
+
+/* ================= CALIBRATION SCORING (receiver side) =================
+   The sender's rungs arrive marked with a rung number in the frame flags. This
+   side never runs the fountain decoder on them: belief propagation would eat
+   exactly the CPU the measurement is trying to measure. It parses the header,
+   counts distinct seeds, tracks px/module, and scores each rung on the only
+   figure that matters -- bytes per second actually recovered. */
+var B45CH="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+function modulesForBytes(nbytes,eccIdx){
+  var n=16+nbytes;                                   /* header + one block */
+  var chars=Math.floor(n/2)*3+((n%2)?2:0);           /* base45 expansion */
+  var s=""; while(s.length<chars) s+=B45CH;
+  return modulesFor(s.slice(0,chars),eccIdx);
+}
+function handleCalFrame(txt,codeW,h){
+  var rung=LW.rungOf(h.flags), now=Date.now();
+  if(!calSeen||now-calLast>CAL_QUIET) calReset();
+  calSeen=true; calLast=now;
+  var st=calRuns[rung];
+  if(!st||st.session!==h.session){
+    st=calRuns[rung]={rung:rung,session:h.session,bs:h.blockSize,ecc:(h.flags>>2)&3,
+      modules:modulesFor(txt,(h.flags>>2)&3),t0:now,seeds:new Set(),
+      n:0,first:0,last:0,ppm:0};
+  }
+  if(st.seeds.has(h.seed)) return;   /* the same code read on two camera frames is not throughput */
+  st.seeds.add(h.seed);
+  if(now-st.t0<CAL_SETTLE) return;   /* code size just changed and autofocus is hunting */
+  if(codeW&&st.modules){ var p=codeW/st.modules; st.ppm=st.ppm?st.ppm*0.8+p*0.2:p; }
+  st.n++; st.last=now; if(!st.first) st.first=now;
+  paintCalLive();
+  if(calEndTimer) clearTimeout(calEndTimer);
+  calEndTimer=setTimeout(finishCal,CAL_QUIET);
+}
+function calReset(){
+  calRuns={}; calSeen=false; rcalRec=null;
+  if(calEndTimer){clearTimeout(calEndTimer);calEndTimer=null;}
+  $("progPanel").classList.add("hidden");
+  $("donePanel").classList.add("hidden");
+  $("rcalPanel").classList.remove("hidden");
+  $("rcalHead").textContent="Calibration signal";
+  $("rcalVerdict").classList.add("hidden");
+  $("rcalAckStage").classList.add("hidden");
+  $("rcalTable").innerHTML="";
+}
+function calScore(st){
+  var span=(st.last-st.first)/1000;
+  var rate=span>0.7?(st.n-1)/span:0;
+  return {rate:rate,kbs:rate*st.bs/1024,span:span,
+          partial:span<0.6*(CAL_MS-CAL_SETTLE)/1000};
+}
+function calRows(){
+  var out=[];
+  for(var k in calRuns) if(calRuns.hasOwnProperty(k)){
+    var st=calRuns[k], sc=calScore(st);
+    out.push({st:st,sc:sc,cfg:CAL_LADDER[st.rung-1]});
+  }
+  out.sort(function(a,b){return a.st.rung-b.st.rung});
+  return out;
+}
+/* Throttled hard: this runs on the decode path, and rebuilding a table a
+   hundred times a second would show up in the very number being measured. */
+function paintCalLive(){
+  var now=Date.now();
+  if(now-calPaintAt<300) return;
+  calPaintAt=now;
+  var rows=calRows(), cur=rows.length?rows[rows.length-1]:null;
+  if(cur) $("rcalNow").textContent="Reading setting "+cur.st.rung+" of "+CAL_LADDER.length
+    +" — "+cur.st.bs+" B/code"+(cur.sc.rate?" · "+cur.sc.kbs.toFixed(1)+" KB/s":"");
+  renderRcalTable(rows,null);
+}
+function renderRcalTable(rows,winner){
+  var h="<tr><th>#</th><th>Setting</th><th>Px/module</th><th>Codes/s</th><th>Measured</th><th>Optics</th></tr>";
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i], cfg=r.cfg, ppm=r.st.ppm;
+    /* trust the ladder only if the block size the sender actually used agrees */
+    var label=(cfg&&cfg.b===r.st.bs)?calLabel(cfg):(r.st.bs+" B");
+    var verdict=!ppm?"—":ppm>=4?"comfortable":ppm>=3?"adequate":"too dense";
+    h+="<tr"+(winner&&winner.st.rung===r.st.rung?' class="win"':"")+">"
+      +"<td class='n'>"+r.st.rung+"</td><td class='n'>"+label+"</td>"
+      +"<td>"+(ppm?ppm.toFixed(1):"—")+"</td>"
+      +"<td>"+(r.sc.rate?r.sc.rate.toFixed(1):"—")+"</td>"
+      +"<td class='n'>"+(r.sc.rate?r.sc.kbs.toFixed(1)+" KB/s":"—")+"</td>"
+      +"<td>"+verdict+(r.sc.partial&&r.sc.rate?" · partial":"")+"</td></tr>";
+  }
+  $("rcalTable").innerHTML=h;
+}
+function finishCal(){
+  calEndTimer=null;
+  var rows=calRows().filter(function(r){return r.sc.rate>0});
+  if(!rows.length){
+    $("rcalHead").textContent="Calibration — nothing decoded";
+    $("rcalNow").textContent="The sweep ran but no code came through. Fill the frame with the grid, kill the glare, and run it again.";
+    return;
+  }
+  var full=rows.filter(function(r){return !r.sc.partial});
+  var pool=full.length?full:rows;
+  var win=pool[0];
+  for(var i=1;i<pool.length;i++) if(pool[i].sc.kbs>win.sc.kbs) win=pool[i];
+  var cfg=win.cfg&&win.cfg.b===win.st.bs?win.cfg:null;
+  var cells=cfg?cfg.g*cfg.g:1;
+  /* the sender only needs to swap fast enough to keep the camera fed, plus a
+     little headroom; beyond that it burns CPU rendering codes nobody reads */
+  var fps=Math.max(2,Math.min(30,Math.round(win.sc.rate/cells*1.25)));
+  var ceiling=win.sc.rate/cells>=CAL_FPS*0.9;
+  if(ceiling) fps=30;
+
+  $("rcalHead").textContent="Calibration done";
+  $("rcalNow").textContent=rows.length+" of "+CAL_LADDER.length+" settings measured.";
+  renderRcalTable(calRows(),win);
+
+  var msg="Best measured: <b>"+(cfg?calLabel(cfg):win.st.bs+" B/code")+"</b> at <b>"
+    +win.sc.kbs.toFixed(1)+" KB/s</b>"+(win.st.ppm?", "+win.st.ppm.toFixed(1)+" px per module":"")+".";
+  if(cfg) msg+=" Set the sender to <b>"+cfg.g+"×"+cfg.g+"</b>, <b>"+cfg.b
+    +" bytes per code</b>, <b>"+fps+" swaps per second</b>.";
+  if(ceiling) msg+=" It never stopped climbing — the sweep's own swap rate was the ceiling, not your camera, so push swaps per second higher still.";
+  if(full.length<rows.length) msg+=" Some settings were only seen in part; those are marked partial and were not ranked.";
+
+  /* One extrapolation, clearly labelled. px/module scales as
+     (pixels the cell spans) / (modules across), and the pixel span is fixed by
+     where the camera is standing -- so a denser code at the same grid is a
+     division, not another experiment. */
+  if(cfg&&win.st.ppm&&win.st.modules){
+    var cellPx=win.st.ppm*win.st.modules;
+    for(var b=2000;b>cfg.b;b-=200){
+      var m=modulesForBytes(b,win.st.ecc);
+      if(m&&cellPx/m>=3.6){
+        msg+=" Predicted, not measured: at this distance "+cfg.g+"×"+cfg.g+" should still read at "
+          +b+" B/code (~"+(cellPx/m).toFixed(1)+" px per module). Worth trying.";
+        break;
+      }
+    }
+  }
+  $("rcalVerdict").innerHTML=msg;
+  $("rcalVerdict").classList.remove("hidden");
+
+  if(cfg){
+    rcalRec={rung:win.st.rung,g:cfg.g,b:cfg.b,fps:fps};
+    drawCalAck(rcalRec);
+    $("rcalAckStage").classList.remove("hidden");
+  }
+}
+function hex1(n){ return (n&15).toString(16).toUpperCase(); }
+function drawCalAck(rec){
+  drawQR($("calAckQr"),
+    "A1:00000000:0000:0000:00:C"+hex2(rec.rung)+hex1(rec.g)+hex4(rec.b)+hex2(rec.fps),"M");
+}
+$("rcalDismiss").onclick=function(){
+  calRuns={}; calSeen=false; rcalRec=null;
+  if(calEndTimer){clearTimeout(calEndTimer);calEndTimer=null;}
+  $("rcalPanel").classList.add("hidden");
+};
 
 function rateNow(){
   if(rateWin.length<4) return 0;

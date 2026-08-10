@@ -10,6 +10,11 @@ cd tests
 npm install @zxing/library pngjs      # only for zxcheck.js
 ```
 
+The Puppeteer suite takes its module path and browser from `PUPPETEER_PATH` and
+`CHROME_PATH`; nothing is hardcoded. Two tests use Playwright instead, because
+that is what the machine they were written on had — point `NODE_PATH` at a tree
+containing it.
+
 Each e2e test starts its own HTTP server on its own port and closes it at the
 end — see `DECISIONS.md` §15. Update the `executablePath` in each e2e file to
 point at your local Chrome. Tests run against `src/test-copy.html` (produced by
@@ -28,6 +33,9 @@ point at your local Chrome. Tests run against `src/test-copy.html` (produced by
 | `zxwasm.js` | Puppeteer | Decodes live on-screen cells with real ZXing-C++ WASM. This is the trustworthy oracle. |
 | `dbg2.js` | Puppeteer | Isolation: worker cell vs control render at multiple scales. |
 | `dbg3.js` | Puppeteer | Pixel-identity control proving worker RGBA == `drawQR` output. |
+| `test3.js` | Node | Calibration rung nibble: roundtrip over every flag combination, ECC/gzip/encryption bits undisturbed, survives base45, and **a rung-marked stream still decodes on a rung-blind decoder** — the assertion that justifies not bumping the version byte. |
+| `e2e6-calibration.mjs` | Playwright | The whole sweep. Sender walks all six rungs and stops; results table renders; Apply sets the knobs. Receiver buckets by rung, rejects duplicate seeds, tracks px/module, ranks by measured KB/s (a rung with a *lower* code rate wins on bytes), labels the prediction, refuses an ACK whose ladder disagrees. Plus: a rung-0 transfer is untouched by any of it. |
+| `smoke-playwright.mjs` | Playwright | The load-bearing invariants under a browser that is actually installed here: engine cascade, **zero external requests**, footer attribution, 2×2 worker render, full loop at 25% loss. |
 
 ## Recorded results
 
@@ -92,6 +100,35 @@ errors: none  externalRequests: 0
 The `externalRequests: 0` line is the offline guarantee: request interception
 aborts everything not on localhost, and the embedded WASM engine still
 initialises and decodes.
+
+**Calibration (`test3.js`, `e2e6-calibration.mjs`, `smoke-playwright.mjs`)**,
+2026-08-10, all passing:
+
+```
+test3.js      14/14 — rung roundtrip, flag isolation, base45 transparency,
+                      rung-marked stream decodes on a rung-blind decoder
+e2e6          sweep visited every rung (6 of 6), stats one row per rung,
+              sender goes quiet at the end, knobs handed back
+              buckets {2,3,4}  duplicates rejected (n < seeds every rung)
+              rung4 ppm=4.27 from a 500 px code across 117 modules
+              winner = rung 4 (2x2, 1200 B) at 42.5 KB/s
+                 -- beating rung 3, which had a HIGHER code rate (39.3/s
+                    vs 36.2/s) and lost on bytes. This is the assertion
+                    that the ranking is goodput, not frames.
+              verdict names the setting, reports KB/s, and prefixes the
+              extrapolation with "Predicted, not measured"
+              ACK field C04204B00B round-trips receiver -> sender
+              a mismatched ladder is ignored, not guessed
+smoke         engine=zxing with all outside requests blocked
+              2x2 renders 4 cells at 105 px  workers=3
+              40 KB file recovered through 25% loss, checksum verified
+              externalRequests: 0 at start and end
+```
+
+Every optical figure above is **simulated** — frames are handed to the decoder
+with a code width in notional camera pixels. What is proven is the machinery:
+bucketing, deduplication, ranking, wording and the ACK round trip. What is not
+proven is any number a real camera would produce.
 
 ## Known test-only failure
 

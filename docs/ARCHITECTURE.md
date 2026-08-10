@@ -75,7 +75,7 @@ Every frame is a 16-byte header followed by the XOR payload.
 | 5–8 | 4 | Total payload length in bytes. |
 | 9–10 | 2 | Block size in bytes. |
 | 11–14 | 4 | Seed. Drives the PRNG that selects which blocks are XORed. |
-| 15 | 1 | Flags. bit0 `FLAG_ENC`, bit1 `FLAG_GZ`, bits2–3 ECC level index. |
+| 15 | 1 | Flags. bit0 `FLAG_ENC`, bit1 `FLAG_GZ`, bits2–3 ECC level index, bits4–7 calibration rung. |
 
 The version byte is a hard compatibility gate: an old build and a new build will
 simply ignore each other's frames rather than half-decoding garbage. **If you
@@ -87,6 +87,12 @@ catch — length, block size, flags — so there is no header frame to miss.
 The ECC bits in the flags exist only so the receiver can reconstruct how many
 modules the sender's codes have, which is needed for the px/module diagnostic
 (see `CAMERA.md`). They do not affect decoding.
+
+The top four bits carry the **calibration rung** — `0` on an ordinary transfer,
+`1..6` while the sender is walking the calibration ladder. Nothing in the codec
+reads them, which is why adding them did not need a version bump; a build that
+predates calibration decodes a rung-marked frame exactly as it decodes any
+other. See `DECISIONS.md` §16.
 
 ### Container format
 
@@ -174,6 +180,50 @@ The WASM binary is embedded as base64 in a `<script type="text/plain">` block an
 handed to the module via the `wasmBinary` override, so it **never fetches
 anything**. Verified with all non-localhost requests blocked: zero external
 requests.
+
+## Calibration
+
+`Send test signal` no longer just streams noise — it sweeps. The sender walks
+six settings, marking each one with its rung number, and the receiver scores
+them. The design reasoning is in `DECISIONS.md` §16; the mechanics:
+
+```
+   SENDER                                          RECEIVER
+
+ six rungs, 6.5 s each, 20 swaps/s
+ 1x1 600 / 1x1 1400 / 2x2 800
+ 2x2 1200 / 3x3 800 / 3x3 1200
+        │
+        ├─ flags bits 4-7 = rung number
+        │        │
+        │     screen ═══════════════════════════►  camera
+        │                                             │
+        │                                    parse header only
+        │                                    (no fountain decode:
+        │                                     it would eat the CPU
+        │                                     being measured)
+        │                                             │
+        │                                    reject duplicate seeds
+        │                                    drop the first 1.5 s
+        │                                             │
+        │                                    per rung: codes/s, px/module
+        │                                             │
+   records only its own        sweep ends ──►  rank by measured KB/s
+   paint rate per rung         (2.5 s quiet)         │
+        │                                    recommend grid, bytes, swaps/s
+        │                                             │
+        └──── ACK QR ◄────────────────────────────────┘
+              "…:C<rung><grid><bytes><fps>"
+              (optional: only if the sender has a camera)
+```
+
+The sender's own contribution is the **paint rate** — codes it actually got on
+screen versus codes it was asked for. A rung where those diverge is marked
+*sender-limited*, so a slow machine is not misread as a weak camera.
+
+If the sender is not watching, the verdict is on the receiving screen naming a
+row number, and the sender's table has an Apply button on every row. Nothing
+about the sweep requires a second camera.
 
 ## Receiver diagnostics
 

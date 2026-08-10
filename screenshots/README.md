@@ -10,3 +10,10 @@ Captured from headless test runs (no real camera involved).
 | `shot4-grid.png` | Sender: 2×2 grid mode. |
 | `shot4-ludicrous.png` | Sender: 3×3 Ludicrous preset, worker pipeline running. |
 | `shot5-diag.png` | Receiver: engine, px/module and optics verdict readouts. |
+| `shot6-calibrating.png` | Sender: mid-sweep on setting 3 of 6, showing the codes it is actually managing to paint. |
+| `shot6-cal-results.png` | Sender: the ladder with per-setting paint rates, two settings flagged sender-limited, and the receiver's verdict arrived over the ACK channel. |
+| `shot6-recv-verdict.png` | Receiver: all six settings scored, the winner picked on measured KB/s rather than code rate, and the prediction marked as a prediction. |
+
+The `shot6-*` figures come from a simulated optical link — frames are handed to
+the decoder with a code width in camera pixels — so the KB/s and px/module
+numbers are plausible, not observed. Nothing here has met a real camera.
