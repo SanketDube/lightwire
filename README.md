@@ -14,6 +14,9 @@ sender never needs to know what was missed.
 dist/lightwire.html      ← the deliverable. Open it in a browser. That's it.
 ```
 
+**[Download the latest release](https://github.com/SanketDube/lightwire/releases/latest)**
+— one file, nothing to install. Copy it to both machines and open it.
+
 **Status:** working and verified end to end against synthetic feeds. **No pass
 on real optics yet** — every camera figure in these docs is a forecast from
 first principles and is marked as one. Download-only: there is no hosted demo,
@@ -190,11 +193,12 @@ actually sustains.
 
 ## Verifying what you downloaded
 
-This is a security-adjacent tool, so check what you run. Release assets are
-published with their SHA-256; compare before opening:
+This is a security-adjacent tool, so check what you run. Every release publishes
+the SHA-256 of its asset in the release notes. Compare before opening:
 
 ```bash
 sha256sum lightwire.html
+# v3.1.0: 273362399333dd3d178eaad7ad7fddcaabe7accef4b719215c80cf1d3d1487be
 ```
 
 Building from source reproduces the same file — `assemble.py` is string
