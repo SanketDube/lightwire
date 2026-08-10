@@ -239,6 +239,22 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
 
 <!-- ============ RECEIVE ============ -->
 <section id="recv" class="hidden">
+  <!-- Result first. A big transfer runs for minutes with nobody watching, so
+       the outcome must be the first thing on the page rather than something
+       you find by scrolling past the grid you were staring at. -->
+  <div class="panel hidden" id="donePanel">
+    <h2 id="doneTitle">Complete</h2>
+    <p id="doneMsg" style="margin:0 0 14px"></p>
+    <div class="row hidden" id="unlockRow" style="margin-bottom:14px">
+      <input type="password" id="rpass" placeholder="Passphrase" autocomplete="off" spellcheck="false" style="flex:1;min-width:170px;width:auto">
+      <button class="primary" id="unlock">Unlock</button>
+    </div>
+    <p class="note hidden" id="unlockMsg" style="margin:0 0 14px;color:var(--bad)"></p>
+    <button class="primary" id="save">Save file</button>
+    <button id="again">Receive another</button>
+    <p class="note" id="doneHash"></p>
+  </div>
+
   <div class="panel" id="camPanel">
     <h2>Camera</h2>
     <div class="row">
@@ -272,9 +288,7 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
   </div>
 
   <div class="panel hidden" id="progPanel">
-    <div class="covlabel"><span>Blocks recovered</span><b id="covPct">0%</b></div>
-    <div class="coverage"><canvas id="cov"></canvas></div>
-    <dl class="readout" style="margin-top:14px">
+    <dl class="readout">
       <div class="cell"><dt>File</dt><dd id="rName" class="sm">—</dd></div>
       <div class="cell"><dt>Size</dt><dd id="rSize">—</dd></div>
       <div class="cell"><dt>Recovered</dt><dd id="rGot" class="hi">0</dd></div>
@@ -285,23 +299,12 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
       <div class="cell"><dt>Px / module</dt><dd id="rPpm" class="hi">—</dd></div>
       <div class="cell"><dt>Optics</dt><dd id="rVerdict" class="sm">—</dd></div>
     </dl>
+    <div class="covlabel" style="margin-top:16px"><span>Blocks recovered</span><b id="covPct">0%</b></div>
+    <div class="coverage"><canvas id="cov"></canvas></div>
     <div class="stage" style="margin-top:16px">
       <div class="card small"><canvas id="ackQr"></canvas></div>
       <p class="note" style="text-align:center;margin:0">Show this to the sender's camera for live progress</p>
     </div>
-  </div>
-
-  <div class="panel hidden" id="donePanel">
-    <h2 id="doneTitle">Complete</h2>
-    <p id="doneMsg" style="margin:0 0 14px"></p>
-    <div class="row hidden" id="unlockRow" style="margin-bottom:14px">
-      <input type="password" id="rpass" placeholder="Passphrase" autocomplete="off" spellcheck="false" style="flex:1;min-width:170px;width:auto">
-      <button class="primary" id="unlock">Unlock</button>
-    </div>
-    <p class="note hidden" id="unlockMsg" style="margin:0 0 14px;color:var(--bad)"></p>
-    <button class="primary" id="save">Save file</button>
-    <button id="again">Receive another</button>
-    <p class="note" id="doneHash"></p>
   </div>
 </section>
 
@@ -14015,6 +14018,20 @@ function resetDoneUI(){
   $("doneHash").textContent="";
   $("rpass").value="";
   $("donePanel").classList.remove("done","fail");
+  document.title=BASE_TITLE;
+}
+/* A 12 MB file takes minutes and nobody watches the whole way. The result panel
+   sits at the top of the page on purpose, so pull the page up to it -- and put
+   the outcome in the tab title, which is the only thing visible to someone who
+   has alt-tabbed away. */
+var BASE_TITLE=document.title;
+function announceDone(tab){
+  document.title=tab+" — "+BASE_TITLE;
+  var p=$("donePanel");
+  if(!p.scrollIntoView) return;
+  var still=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  try{ p.scrollIntoView({behavior:still?"auto":"smooth",block:"start"}); }
+  catch(e){ p.scrollIntoView(true); }
 }
 
 function finish(){
@@ -14031,6 +14048,7 @@ function finish(){
     $("donePanel").classList.remove("hidden"); $("donePanel").classList.add("done");
     $("doneTitle").textContent="Received — locked";
     $("doneMsg").textContent="All "+dec.K+" blocks are in from "+readCount+" codes. Enter the passphrase to unlock and verify.";
+    announceDone("Locked");
     $("unlockRow").classList.remove("hidden");
     $("save").classList.add("hidden");
     $("rpass").focus();
@@ -14062,6 +14080,7 @@ function openPipeline(payload,flags,pass){
     $("donePanel").classList.remove("hidden"); $("donePanel").classList.add("done");
     $("doneTitle").textContent="Complete — checksum verified";
     $("doneMsg").textContent=out.meta.n+" · "+fmt(out.meta.s)+" · recovered from "+readCount+" codes.";
+    announceDone("Complete");
     $("rName").textContent=out.meta.n.length>18?out.meta.n.slice(0,16)+"…":out.meta.n;
     LW.sha256Hex(out.data).then(function(h){
       if(h&&result===out) $("doneHash").textContent="Fingerprint "+fp(h)+" — should match the sender's.";
@@ -14084,6 +14103,7 @@ function fail(msg){
   $("donePanel").classList.remove("hidden","done"); $("donePanel").classList.add("fail");
   $("doneTitle").textContent="Something is wrong";
   $("doneMsg").textContent=msg;
+  announceDone("Failed");
   $("save").classList.add("hidden");
   $("unlockRow").classList.add("hidden");
 }
