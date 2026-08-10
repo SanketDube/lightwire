@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LIGHTWIRE — optical file transfer</title>
+<style>
+:root{
+  --bg:#12161C; --panel:#1A2028; --panel-2:#212932; --line:#2C3742;
+  --ink:#E7EBEF; --mute:#8B959F; --dim:#5D6874;
+  --send:#F0A93B; --recv:#4FD1C5; --bad:#E8674F;
+  --accent:var(--send);
+  --mono:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-text-size-adjust:100%}
+body{padding:18px 16px 56px;line-height:1.5}
+.wrap{max-width:940px;margin:0 auto}
+
+.mast{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:14px}
+.logo{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;margin:0}
+.logo b{color:var(--accent);font-weight:700}
+.tag{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0 22px}
+.role{appearance:none;background:var(--panel);border:1px solid var(--line);color:var(--mute);
+  font-family:var(--mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;
+  padding:16px 12px;cursor:pointer;text-align:left;border-radius:2px;transition:border-color .12s,color .12s}
+.role span{display:block;font-size:10px;letter-spacing:.08em;color:var(--dim);margin-top:4px;text-transform:none;font-family:var(--sans)}
+.role:hover{border-color:var(--dim);color:var(--ink)}
+.role[aria-selected="true"]{color:var(--ink);border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent);background:var(--panel-2)}
+.role:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,.card:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:16px;margin-bottom:14px}
+.panel h2{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+.hidden{display:none !important}
+
+button{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  background:var(--panel-2);color:var(--ink);border:1px solid var(--line);padding:10px 16px;border-radius:2px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent);color:#10141A;border-color:var(--accent);font-weight:700}
+button.preset{padding:8px 12px;font-size:11px}
+button.preset[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+select{font-family:var(--mono);font-size:12px;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);padding:8px;border-radius:2px;max-width:100%}
+input[type=range]{accent-color:var(--accent);width:100%}
+input[type=password]{font-family:var(--mono);font-size:13px;background:var(--panel-2);color:var(--ink);
+  border:1px solid var(--line);padding:9px 10px;border-radius:2px;width:100%}
+.check{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--mute);cursor:pointer;user-select:none}
+.check input{accent-color:var(--accent);width:auto;margin:0}
+.knobs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;margin-top:14px}
+.knob label{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.knob label b{color:var(--ink);font-weight:400}
+
+.drop{border:1px dashed var(--line);border-radius:2px;padding:30px 18px;text-align:center;cursor:pointer;transition:border-color .12s,background .12s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--panel-2)}
+.drop p{margin:0;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--mute)}
+.drop small{display:block;margin-top:8px;color:var(--dim);font-size:11px}
+
+.stage{display:flex;flex-direction:column;align-items:center;gap:14px}
+.card{background:#fff;padding:14px;border-radius:2px;cursor:pointer;width:min(82vw,480px)}
+.card .qgrid{display:grid;gap:8px}
+.card canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
+.card.small{width:min(34vw,150px);line-height:0}
+.card:fullscreen{display:flex;align-items:center;justify-content:center;padding:0;background:#fff;cursor:zoom-out;width:auto}
+.card:fullscreen .qgrid{width:min(97vw,97vh)}
+
+.readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.cell{background:var(--panel);padding:10px 12px}
+.cell dt{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:0}
+.cell dd{margin:3px 0 0;font-family:var(--mono);font-size:17px;color:var(--ink)}
+.cell dd.hi{color:var(--accent)}
+.cell dd.sm{font-size:12px}
+
+.coverage{position:relative;border:1px solid var(--line);background:#0D1116;border-radius:2px;padding:10px}
+.coverage canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
+.covlabel{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.covlabel b{color:var(--recv);font-weight:400}
+
+video{width:100%;max-width:300px;border:1px solid var(--line);border-radius:2px;background:#000;display:block}
+
+.note{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.03em;margin-top:10px}
+.done{border-color:var(--recv);box-shadow:inset 3px 0 0 var(--recv)}
+.fail{border-color:var(--bad);box-shadow:inset 3px 0 0 var(--bad)}
+.done h2,.fail h2{color:var(--ink)}
+footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;
+  text-align:center;margin-top:26px;border-top:1px solid var(--line);padding-top:14px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="mast">
+  <h1 class="logo">Light<b>wire</b></h1>
+  <span class="tag">One file · no network · fountain-coded</span>
+</header>
+
+<div class="roles" role="tablist">
+  <button class="role" id="tabSend" role="tab" aria-selected="true">Send
+    <span>Turn a file into a stream of codes</span></button>
+  <button class="role" id="tabRecv" role="tab" aria-selected="false">Receive
+    <span>Point a camera at the other screen</span></button>
+</div>
+
+<!-- ============ SEND ============ -->
+<section id="send">
+  <div class="panel" id="pickPanel">
+    <h2>File</h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a file to send">
+      <p>Drop a file here, or click to choose</p>
+      <small>Ctrl+V pastes text or a copied file. Nothing leaves this tab — there is nowhere to upload to.</small>
+    </div>
+    <input type="file" id="file" class="hidden">
+    <div class="row" style="margin-top:12px">
+      <button id="testSig">Send test signal</button>
+      <span class="note" style="margin:0">256 KB of incompressible noise — for tuning speed against your camera without a real file.</span>
+    </div>
+    <div class="knob" style="margin-top:16px">
+      <label for="pass">Passphrase <b id="passState">off — sends in the clear</b></label>
+      <input type="password" id="pass" placeholder="Optional. The receiver types the same phrase to unlock." autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <div class="panel hidden" id="sendPanel">
+    <h2>Transmitting</h2>
+    <div class="stage">
+      <div class="card" id="qrCard" role="button" tabindex="0" title="Click for fullscreen" aria-label="QR codes — click for fullscreen">
+        <div class="qgrid" id="qrGrid"></div>
+      </div>
+      <div class="row">
+        <button id="pause">Pause</button>
+        <button id="stop">Change file</button>
+        <button id="watch">Watch receiver</button>
+      </div>
+      <video id="ackCam" class="hidden" playsinline muted></video>
+    </div>
+    <dl class="readout" style="margin-top:16px">
+      <div class="cell"><dt>File</dt><dd id="sName" class="sm">—</dd></div>
+      <div class="cell"><dt>On the wire</dt><dd id="sWire" class="sm">—</dd></div>
+      <div class="cell"><dt>Blocks</dt><dd id="sK">—</dd></div>
+      <div class="cell"><dt>Codes sent</dt><dd id="sSent">0</dd></div>
+      <div class="cell"><dt>Nominal</dt><dd id="sNom" class="sm">—</dd></div>
+      <div class="cell"><dt>Full pass</dt><dd id="sEta">—</dd></div>
+      <div class="cell"><dt>Fingerprint</dt><dd id="sHash" class="sm">—</dd></div>
+      <div class="cell"><dt>Receiver</dt><dd id="sAck" class="hi sm">not watching</dd></div>
+    </dl>
+    <p class="note" id="sNote">Every code is a fresh random mix of the file's blocks, so the receiver can join late, miss codes, and still finish. Click the codes for fullscreen.</p>
+  </div>
+
+  <div class="panel" id="knobPanel">
+    <h2>Signal</h2>
+    <div class="row" role="group" aria-label="Speed presets">
+      <button class="preset" id="pSteady">Steady · 6 KB/s</button>
+      <button class="preset" id="pFast">Fast · 48 KB/s</button>
+      <button class="preset" id="pLudicrous">Ludicrous · 189 KB/s</button>
+    </div>
+    <div class="knobs">
+      <div class="knob">
+        <label for="grid">Codes on screen <b id="gridV">1×1</b></label>
+        <input type="range" id="grid" min="1" max="3" value="1">
+      </div>
+      <div class="knob">
+        <label for="fps">Swaps per second <b id="fpsV">10</b></label>
+        <input type="range" id="fps" min="2" max="30" value="10">
+      </div>
+      <div class="knob">
+        <label for="bs">Bytes per code <b id="bsV">600</b></label>
+        <input type="range" id="bs" min="200" max="2000" step="100" value="600">
+      </div>
+      <div class="knob">
+        <label for="ecc">Error correction <b id="eccV">L — densest</b></label>
+        <input type="range" id="ecc" min="0" max="2" value="0">
+      </div>
+      <div class="knob">
+        <label>Compression</label>
+        <label class="check" for="gz"><input type="checkbox" id="gz" checked> Gzip when it shrinks the file</label>
+      </div>
+    </div>
+    <p class="note">Speed = codes on screen × swaps per second × bytes per code. Watch the receiver's measured KB/s and step up until it stops climbing: the camera is the limit, not the screen. Grid mode needs the receiver's built-in scanner (Chrome or Edge). Bigger codes need the camera closer and sharper.</p>
+  </div>
+</section>
+
+<!-- ============ RECEIVE ============ -->
+<section id="recv" class="hidden">
+  <div class="panel" id="camPanel">
+    <h2>Camera</h2>
+    <div class="row">
+      <button class="primary" id="startCam">Start camera</button>
+      <select id="camSel" class="hidden"></select>
+      <button id="stopCam" class="hidden">Stop</button>
+    </div>
+    <p class="note" id="camNote">Point it at the sending screen. Fill the frame with the codes, hold steady, avoid glare. Codes you miss are re-mixed and sent again, so you can start late and still get the whole file.</p>
+    <video id="cam" class="hidden" playsinline muted style="margin-top:12px"></video>
+    <div class="knob hidden" id="zoomKnob" style="margin-top:12px;max-width:300px">
+      <label for="zoom">Camera zoom <b id="zoomV">1×</b></label>
+      <input type="range" id="zoom">
+    </div>
+    <div class="knob hidden" id="focusKnob" style="margin-top:12px;max-width:300px">
+      <label for="focus">Focus <b id="focusV">auto</b></label>
+      <label class="check"><input type="checkbox" id="focusLock"> Lock focus (stops autofocus hunting)</label>
+      <input type="range" id="focus" disabled style="margin-top:6px">
+    </div>
+  </div>
+
+  <div class="panel hidden" id="progPanel">
+    <div class="covlabel"><span>Blocks recovered</span><b id="covPct">0%</b></div>
+    <div class="coverage"><canvas id="cov"></canvas></div>
+    <dl class="readout" style="margin-top:14px">
+      <div class="cell"><dt>File</dt><dd id="rName" class="sm">—</dd></div>
+      <div class="cell"><dt>Size</dt><dd id="rSize">—</dd></div>
+      <div class="cell"><dt>Recovered</dt><dd id="rGot" class="hi">0</dd></div>
+      <div class="cell"><dt>Codes read</dt><dd id="rRead">0</dd></div>
+      <div class="cell"><dt>Decode rate</dt><dd id="rFps">—</dd></div>
+      <div class="cell"><dt>Measured</dt><dd id="rKbs" class="hi">—</dd></div>
+      <div class="cell"><dt>Engine</dt><dd id="rEng" class="sm">—</dd></div>
+      <div class="cell"><dt>Px / module</dt><dd id="rPpm" class="hi">—</dd></div>
+      <div class="cell"><dt>Optics</dt><dd id="rVerdict" class="sm">—</dd></div>
+    </dl>
+    <div class="stage" style="margin-top:16px">
+      <div class="card small"><canvas id="ackQr"></canvas></div>
+      <p class="note" style="text-align:center;margin:0">Show this to the sender's camera for live progress</p>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="donePanel">
+    <h2 id="doneTitle">Complete</h2>
+    <p id="doneMsg" style="margin:0 0 14px"></p>
+    <div class="row hidden" id="unlockRow" style="margin-bottom:14px">
+      <input type="password" id="rpass" placeholder="Passphrase" autocomplete="off" spellcheck="false" style="flex:1;min-width:170px;width:auto">
+      <button class="primary" id="unlock">Unlock</button>
+    </div>
+    <p class="note hidden" id="unlockMsg" style="margin:0 0 14px;color:var(--bad)"></p>
+    <button class="primary" id="save">Save file</button>
+    <button id="again">Receive another</button>
+    <p class="note" id="doneHash"></p>
+  </div>
+</section>
+
+<footer>Lightwire · works offline · qrcode-generator (MIT) · jsQR (Apache-2.0)</footer>
+</div>
+
+<script type="text/plain" id="libsrc">
+__LIBSRC__
+</script>
+<script>/* ==== jsQR by Cosmo Wolfe — Apache-2.0 (last-resort decoder) ==== */
+__JSQR__
+</script>
+<script>/* ==== zxing-wasm reader glue — Apache-2.0 ==== */
+__ZXJS__
+</script>
+<script type="text/plain" id="zxb64">__ZXWASM_B64__</script>
+<script>
+/* qrcode-generator + the Lightwire core live once in #libsrc; evaluated here for the
+   main thread and re-used verbatim as the Web Worker body for the frame factory. */
+var LIBSRC=document.getElementById("libsrc").textContent;
+eval(LIBSRC);
+
+/* ================= app ================= */
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var ECC=["L","M","Q"], ECCNAME=["L — densest","M — steadier","Q — toughest"];
+
+/* ---------- role switching ---------- */
+var role="send";
+function setRole(r){
+  role=r;
+  var s=r==="send";
+  $("tabSend").setAttribute("aria-selected",s);
+  $("tabRecv").setAttribute("aria-selected",!s);
+  $("send").classList.toggle("hidden",!s);
+  $("recv").classList.toggle("hidden",s);
+  document.documentElement.style.setProperty("--accent",s?"var(--send)":"var(--recv)");
+  if(s) stopReceiver(); else stopSender();
+}
+$("tabSend").onclick=function(){setRole("send")};
+$("tabRecv").onclick=function(){setRole("recv")};
+
+/* ---------- wake locks ---------- */
+var wakeLocks={s:null,r:null};
+function stayAwake(which){
+  if(!("wakeLock" in navigator)) return;
+  navigator.wakeLock.request("screen").then(function(l){
+    if(wakeLocks[which]) wakeLocks[which].release().catch(function(){});
+    wakeLocks[which]=l;
+  }).catch(function(){});
+}
+function releaseAwake(which){
+  if(wakeLocks[which]){ wakeLocks[which].release().catch(function(){}); wakeLocks[which]=null; }
+}
+document.addEventListener("visibilitychange",function(){
+  if(document.visibilityState!=="visible") return;
+  if(sendTimer&&!paused) stayAwake("s");
+  if(scanning) stayAwake("r");
+});
+
+/* ---------- shared: draw a QR onto a canvas (low-rate paths: ACK, worker fallback) ---------- */
+function drawQR(canvas,text,ecc){
+  var q=qrcode(0,ecc||"L");
+  q.addData(text,"Alphanumeric");
+  q.make();
+  var n=q.getModuleCount(), pad=2, size=n+pad*2;
+  canvas.width=size; canvas.height=size;
+  var g=canvas.getContext("2d");
+  g.fillStyle="#fff"; g.fillRect(0,0,size,size);
+  g.fillStyle="#000";
+  for(var r=0;r<n;r++) for(var c=0;c<n;c++) if(q.isDark(r,c)) g.fillRect(c+pad,r+pad,1,1);
+}
+
+/* ---------- shared: barcode reading ---------- */
+var enginePromise=null;
+function b64ToBytes(s){
+  var bin=atob(s.replace(/\s+/g,""));
+  var out=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+function dist(a,b){ var dx=a.x-b.x,dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+/* Engine cascade: native BarcodeDetector (macOS/Android Chrome) -> embedded ZXing-WASM
+   (Windows/Linux/Firefox get the same C++ engine class, offline) -> jsQR last resort.
+   Every engine returns a list of {text, w} where w = detected code width in camera px. */
+function getEngine(){
+  if(enginePromise) return enginePromise;
+  enginePromise=new Promise(function(resolve){
+    var tryNative=function(){
+      if(!("BarcodeDetector" in window)) return Promise.resolve(null);
+      return window.BarcodeDetector.getSupportedFormats().then(function(f){
+        if(f.indexOf("qr_code")<0) return null;
+        var det=new window.BarcodeDetector({formats:["qr_code"]});
+        return {kind:"native",read:function(video,cnv,ctx){
+          return det.detect(video).then(function(rs){
+            if(!rs.length) return null;
+            return rs.map(function(r){return {text:r.rawValue,w:r.boundingBox?r.boundingBox.width:0}});
+          }).catch(function(){return null});
+        }};
+      }).catch(function(){return null});
+    };
+    var tryZX=function(){
+      try{
+        if(typeof ZXingWASM==="undefined"||!ZXingWASM.readBarcodes) return Promise.resolve(null);
+        var el=document.getElementById("zxb64");
+        if(!el) return Promise.resolve(null);
+        var bin=b64ToBytes(el.textContent);
+        ZXingWASM.prepareZXingModule({overrides:{wasmBinary:bin.buffer},fireImmediately:true});
+        /* warm the module with a no-op read so first real frame is fast */
+        var probe=new ImageData(16,16);
+        return ZXingWASM.readBarcodes(probe,{formats:["QRCode"]}).then(function(){
+          return {kind:"zxing",read:function(video,cnv,ctx){
+            var w=video.videoWidth,h=video.videoHeight;
+            if(!w||!h) return Promise.resolve(null);
+            if(cnv.width!==w){cnv.width=w;cnv.height=h;}
+            ctx.drawImage(video,0,0,w,h);
+            var img=ctx.getImageData(0,0,w,h);
+            return ZXingWASM.readBarcodes(img,{formats:["QRCode"],tryHarder:true,maxNumberOfSymbols:16})
+              .then(function(rs){
+                if(!rs.length) return null;
+                return rs.map(function(r){
+                  var p=r.position;
+                  var wd=p?dist(p.topLeft,p.topRight):0;
+                  return {text:r.text,w:wd};
+                });
+              }).catch(function(){return null});
+          }};
+        }).catch(function(){return null});
+      }catch(e){ return Promise.resolve(null); }
+    };
+    tryNative().then(function(nat){
+      if(nat) return resolve(nat);
+      tryZX().then(function(zx){
+        if(zx) return resolve(zx);
+        resolve({kind:"jsqr",read:function(video,cnv,ctx){
+          var w=video.videoWidth,h=video.videoHeight;
+          if(!w||!h) return Promise.resolve(null);
+          var side=Math.min(w,h), sx=(w-side)>>1, sy=(h-side)>>1;
+          if(cnv.width!==side){cnv.width=side;cnv.height=side;}
+          ctx.drawImage(video,sx,sy,side,side,0,0,side,side);
+          var img=ctx.getImageData(0,0,side,side);
+          var r=jsQR(img.data,side,side,{inversionAttempts:"dontInvert"});
+          if(!r) return Promise.resolve(null);
+          var wd=r.location?dist(r.location.topLeftCorner,r.location.topRightCorner):0;
+          return Promise.resolve([{text:r.data,w:wd}]);
+        }});
+      });
+    });
+  });
+  return enginePromise;
+}
+function openCamera(video,deviceId,facing){
+  var c=deviceId?{deviceId:{exact:deviceId}}:{facingMode:facing||"environment"};
+  c.width={ideal:1920}; c.height={ideal:1080}; c.frameRate={ideal:30};
+  return navigator.mediaDevices.getUserMedia({video:c,audio:false}).then(function(st){
+    video.srcObject=st; video.classList.remove("hidden");
+    return video.play().then(function(){return st});
+  });
+}
+function closeCamera(video){
+  var st=video.srcObject;
+  if(st) st.getTracks().forEach(function(t){t.stop()});
+  video.srcObject=null; video.classList.add("hidden");
+}
+function fp(hex){ return hex? (hex.slice(0,4)+"·"+hex.slice(4,8)+"·"+hex.slice(8,12)).toUpperCase() : "—"; }
+function fmt(n){ return n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(2)+" MB"; }
+
+/* ================= SENDER ================= */
+var enc=null,sendTimer=null,sent=0,paused=false,sessionId=0,fileMeta=null,beginToken=0;
+var gridN=1,cellCanvas=[];
+var ackVideo=$("ackCam"),ackCanvas=document.createElement("canvas"),ackCtx=ackCanvas.getContext("2d",{willReadFrequently:true});
+var ackLoop=null,ackBusy=false;
+
+/* ----- the frame factory: workers pre-render QR frames so the paint loop never blocks ----- */
+var WORKER_TAIL=[
+"var ENC=null,GEN=0,STRIDE=1,SEED=1,ECCL='L';",
+"onmessage=function(ev){var m=ev.data;",
+" if(m.type==='init'){GEN=m.gen;ECCL=m.ecc;STRIDE=m.stride;SEED=m.start;",
+"   ENC=LW.makeEncoder(new Uint8Array(m.payload),m.blockSize,m.session,m.flags);return;}",
+" if(m.type==='gen'&&ENC&&m.gen===GEN){",
+"   for(var i=0;i<m.n;i++){",
+"     var seed=SEED; SEED+=STRIDE;",
+"     var frame=ENC.frame(seed);",
+"     var text=LW.base45Encode(frame);",
+"     var q=qrcode(0,ECCL); q.addData(text,'Alphanumeric'); q.make();",
+"     var n=q.getModuleCount(),pad=4,size=n+pad*2;",
+"     var rgba=new Uint8ClampedArray(size*size*4);",
+"     rgba.fill(255);",
+"     for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(q.isDark(r,c)){var o=((r+pad)*size+(c+pad))*4;rgba[o]=0;rgba[o+1]=0;rgba[o+2]=0;}",
+"     postMessage({gen:m.gen,size:size,rgba:rgba.buffer},[rgba.buffer]);",
+"   }",
+" }};"
+].join("\n");
+
+var workers=[],frameQ=[],genId=0,pendingGen=0,mainSeed=1,cellPhase=0;
+function bootWorkers(){
+  if(workers.length||!window.Worker||!window.URL||!URL.createObjectURL) return;
+  try{
+    var url=URL.createObjectURL(new Blob([LIBSRC+"\n"+WORKER_TAIL],{type:"text/javascript"}));
+    var n=Math.min(6,Math.max(1,(navigator.hardwareConcurrency||2)-1));
+    for(var i=0;i<n;i++){
+      var w=new Worker(url);
+      w.onmessage=function(ev){
+        var m=ev.data;
+        if(m.gen!==genId) return;
+        pendingGen--;
+        frameQ.push(m);
+      };
+      w.onerror=function(){ workers.forEach(function(x){try{x.terminate()}catch(e){}}); workers=[]; };
+      workers.push(w);
+    }
+  }catch(e){ workers=[]; }
+}
+function initWorkers(payload,blockSize,flags){
+  frameQ=[]; pendingGen=0; mainSeed=1;
+  var ecc=ECC[+$("ecc").value];
+  for(var i=0;i<workers.length;i++){
+    var copy=payload.buffer.slice(payload.byteOffset,payload.byteOffset+payload.byteLength);
+    workers[i].postMessage({type:"init",gen:genId,payload:copy,blockSize:blockSize,
+      session:sessionId,flags:flags,ecc:ecc,stride:workers.length,start:i+1},[copy]);
+  }
+  refill();
+}
+function refill(){
+  if(!workers.length||!enc) return;
+  var cells=gridN*gridN, low=cells*3, want=cells*8;
+  if(frameQ.length+pendingGen<low){
+    var per=Math.ceil(want/workers.length);
+    for(var i=0;i<workers.length;i++){
+      workers[i].postMessage({type:"gen",n:per,gen:genId});
+      pendingGen+=per;
+    }
+  }
+}
+function blit(cv,f){
+  if(cv.width!==f.size){cv.width=f.size;cv.height=f.size;}
+  cv.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(f.rgba),f.size,f.size),0,0);
+}
+function buildGrid(){
+  var g=$("qrGrid"); g.innerHTML="";
+  g.style.gridTemplateColumns="repeat("+gridN+",1fr)";
+  cellCanvas=[];
+  for(var i=0;i<gridN*gridN;i++){
+    var c=document.createElement("canvas");
+    g.appendChild(c); cellCanvas.push(c);
+  }
+}
+
+/* ----- knobs & presets ----- */
+$("grid").oninput=function(){$("gridV").textContent=this.value+"×"+this.value;};
+$("grid").onchange=function(){ gridN=+this.value; clearPreset(); if(fileMeta) begin(); };
+$("fps").oninput=function(){$("fpsV").textContent=this.value; clearPreset(); if(sendTimer) restartTimer();};
+$("bs").oninput=function(){$("bsV").textContent=this.value;};
+$("bs").onchange=function(){ clearPreset(); if(fileMeta) begin(); };
+$("gz").onchange=function(){ if(fileMeta) begin(); };
+$("ecc").oninput=function(){$("eccV").textContent=ECCNAME[+this.value]};
+$("ecc").onchange=function(){ if(fileMeta) begin(); };
+$("pass").oninput=function(){$("passState").textContent=this.value?"AES-256-GCM":"off — sends in the clear";};
+
+function applyPreset(btn,f,b,g){
+  ["pSteady","pFast","pLudicrous"].forEach(function(id){$(id).setAttribute("aria-pressed",id===btn)});
+  $("fps").value=f; $("fpsV").textContent=f;
+  $("bs").value=b; $("bsV").textContent=b;
+  $("grid").value=g; $("gridV").textContent=g+"×"+g;
+  gridN=g;
+  if(fileMeta) begin();
+}
+function clearPreset(){ ["pSteady","pFast","pLudicrous"].forEach(function(id){$(id).setAttribute("aria-pressed","false")}); }
+$("pSteady").onclick=function(){applyPreset("pSteady",10,600,1)};
+$("pFast").onclick=function(){applyPreset("pFast",12,1000,2)};
+$("pLudicrous").onclick=function(){applyPreset("pLudicrous",15,1400,3)};
+
+/* ----- file intake ----- */
+$("drop").onclick=function(){$("file").click()};
+$("drop").onkeydown=function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();$("file").click();}};
+$("drop").ondragover=function(e){e.preventDefault();this.classList.add("over")};
+$("drop").ondragleave=function(){this.classList.remove("over")};
+$("drop").ondrop=function(e){
+  e.preventDefault(); this.classList.remove("over");
+  if(e.dataTransfer.files.length) load(e.dataTransfer.files[0]);
+};
+$("file").onchange=function(){ if(this.files.length) load(this.files[0]); };
+document.addEventListener("paste",function(e){
+  if(role!=="send"||$("pickPanel").classList.contains("hidden")) return;
+  var tag=(e.target&&e.target.tagName)||"";
+  if(tag==="INPUT"||tag==="TEXTAREA") return;
+  var cd=e.clipboardData; if(!cd) return;
+  if(cd.files&&cd.files.length){ e.preventDefault(); load(cd.files[0]); return; }
+  var t=cd.getData("text");
+  if(t){ e.preventDefault(); startFile(new TextEncoder().encode(t),"clipboard.txt","text/plain"); }
+});
+$("testSig").onclick=function(){
+  var n=256*1024, out=new Uint8Array(n);
+  var s=0x1F2E3D4C;
+  for(var i=0;i<n;i++){ s^=s<<13; s^=s>>>17; s^=s<<5; s>>>=0; out[i]=s&255; }
+  startFile(out,"lightwire-test.bin","application/octet-stream");
+};
+function load(f){
+  if(f.size>32*1024*1024){ alert("That file is "+fmt(f.size)+". Anything over about 32 MB will take hours on a light link — send a smaller file or an archive of the parts you need."); return; }
+  f.arrayBuffer().then(function(buf){
+    startFile(new Uint8Array(buf),f.name,f.type||"application/octet-stream");
+  });
+}
+function startFile(bytes,name,type){
+  fileMeta={bytes:bytes,name:name,type:type};
+  $("sHash").textContent="—";
+  LW.sha256Hex(bytes).then(function(h){ if(fileMeta&&fileMeta.bytes===bytes) $("sHash").textContent=fp(h); }).catch(function(){});
+  begin();
+}
+
+/* ----- start / restart the stream ----- */
+function begin(){
+  var my=++beginToken;
+  var m=fileMeta; if(!m) return;
+  if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
+  var blockSize=+$("bs").value;
+  var pass=$("pass").value;
+  if(pass&&!LW.subtleOK()){
+    alert("Encryption needs a secure page. The browser only enables crypto on https or http://localhost — run  python -m http.server  in this folder and open the page from there.");
+    return;
+  }
+  var container=LW.buildContainer(m.name,m.type,m.bytes);
+  var work=Promise.resolve({payload:container,flags:0});
+  if($("gz").checked){
+    work=work.then(function(st){
+      return LW.gzipBytes(st.payload).then(function(g){
+        if(g&&g.length<st.payload.length-64) return {payload:g,flags:st.flags|LW.FLAG_GZ};
+        return st;
+      }).catch(function(){return st});
+    });
+  }
+  if(pass){
+    work=work.then(function(st){
+      return LW.encryptBytes(pass,st.payload).then(function(ct){
+        return {payload:ct,flags:st.flags|LW.FLAG_ENC};
+      });
+    });
+  }
+  work.then(function(st){
+    if(my!==beginToken) return;
+    st.flags|=(+$("ecc").value&3)<<2;
+    genId++;
+    sessionId=(Math.random()*4294967295)>>>0;
+    enc=LW.makeEncoder(st.payload,blockSize,sessionId,st.flags);
+    sent=0; paused=false; mainSeed=1;
+    bootWorkers();
+    buildGrid();
+    if(workers.length) initWorkers(st.payload,blockSize,st.flags);
+    $("pickPanel").classList.add("hidden");
+    $("sendPanel").classList.remove("hidden");
+    $("sName").textContent=m.name.length>18?m.name.slice(0,16)+"…":m.name;
+    $("sWire").textContent=fmt(st.payload.length)+((st.flags&LW.FLAG_GZ)?" ↓gz":"")+((st.flags&LW.FLAG_ENC)?" 🔒":"");
+    $("sK").textContent=enc.K;
+    $("pause").textContent="Pause";
+    stayAwake("s");
+    restartTimer();
+  });
+}
+function restartTimer(){
+  if(sendTimer) clearInterval(sendTimer);
+  if(!enc) return;
+  var fps=+$("fps").value, cells=gridN*gridN;
+  $("sEta").textContent=Math.max(1,Math.ceil(enc.K/(fps*cells)))+"s";
+  $("sNom").textContent=fmt(fps*cells*(+$("bs").value))+"/s";
+  sendTimer=setInterval(tick,1000/fps);
+  tick();
+}
+function tick(){
+  if(paused||!enc) return;
+  refill();
+  var cells=gridN*gridN;
+  for(var i=0;i<cells;i++){
+    var slot=(cellPhase+i)%cells;
+    if(workers.length){
+      var f=frameQ.shift();
+      if(!f){ cellPhase=(cellPhase+i)%cells; $("sSent").textContent=sent; return; }
+      blit(cellCanvas[slot],f);
+    } else {
+      /* no-worker fallback: synchronous generation, slower but functional */
+      drawQR(cellCanvas[slot],LW.base45Encode(enc.frame(mainSeed++)),ECC[+$("ecc").value]);
+    }
+    sent++;
+  }
+  cellPhase=(cellPhase+cells)%cells;
+  $("sSent").textContent=sent;
+}
+$("pause").onclick=function(){
+  paused=!paused; this.textContent=paused?"Resume":"Pause";
+};
+$("stop").onclick=function(){ stopSender(); $("sendPanel").classList.add("hidden"); $("pickPanel").classList.remove("hidden"); };
+function stopSender(){
+  beginToken++; genId++;
+  if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
+  enc=null; fileMeta=null; frameQ=[]; pendingGen=0;
+  stopWatching(); releaseAwake("s");
+}
+
+/* fullscreen the code grid */
+var qrCard=$("qrCard");
+function fsToggle(){
+  if(document.fullscreenElement){ document.exitFullscreen().catch(function(){}); }
+  else if(qrCard.requestFullscreen){ qrCard.requestFullscreen().catch(function(){}); }
+}
+qrCard.onclick=fsToggle;
+qrCard.onkeydown=function(e){ if(e.key==="Enter"||e.key===" "){e.preventDefault();fsToggle();} };
+
+/* --- back-channel: read the receiver's progress code --- */
+$("watch").onclick=function(){ ackLoop?stopWatching():startWatching(); };
+function startWatching(){
+  openCamera(ackVideo,null,"environment").then(function(){
+    $("watch").textContent="Stop watching";
+    $("sAck").textContent="looking…";
+    getEngine().then(function(eng){
+      ackLoop=setInterval(function(){
+        if(ackBusy) return; ackBusy=true;
+        eng.read(ackVideo,ackCanvas,ackCtx).then(function(list){
+          ackBusy=false;
+          if(!list) return;
+          for(var i=0;i<list.length;i++){
+            var txt=list[i].text;
+            if(!txt||txt.indexOf("A1:")!==0) continue;
+            var parts=txt.split(":");
+            if(parts.length<4) continue;
+            var got=parseInt(parts[2],16),K=parseInt(parts[3],16);
+            var rate=parts.length>4?parseInt(parts[4],16):null;
+            if(!K||isNaN(got)) continue;
+            var pct=Math.floor(got*100/K);
+            $("sAck").textContent=pct+"%"+(rate?" · "+rate+"/s":"");
+            if(got>=K){
+              $("sAck").textContent="done";
+              $("sNote").textContent="The receiver has the whole file. You can stop sending.";
+              if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
+              releaseAwake("s");
+            }
+          }
+        },function(){ackBusy=false});
+      },400);
+    });
+  }).catch(function(){ $("sAck").textContent="no camera"; });
+}
+function stopWatching(){
+  if(ackLoop){clearInterval(ackLoop);ackLoop=null;}
+  ackBusy=false;
+  closeCamera(ackVideo);
+  $("watch").textContent="Watch receiver";
+  $("sAck").textContent="not watching";
+}
+
+/* ================= RECEIVER ================= */
+var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastCov=-1,result=null;
+var activeEngine=null,sessModules=0,ppmEma=0;
+var pendingRaw=null;
+var cam=$("cam"),rCanvas=document.createElement("canvas"),rCtx=rCanvas.getContext("2d",{willReadFrequently:true});
+
+$("startCam").onclick=function(){
+  openCamera(cam,null,"environment").then(function(stream){
+    $("startCam").classList.add("hidden");
+    $("stopCam").classList.remove("hidden");
+    initZoom(stream);
+    return navigator.mediaDevices.enumerateDevices();
+  }).then(function(devs){
+    var vids=devs.filter(function(d){return d.kind==="videoinput"});
+    if(vids.length>1){
+      var sel=$("camSel"); sel.innerHTML="";
+      vids.forEach(function(d,i){
+        var o=document.createElement("option");
+        o.value=d.deviceId; o.textContent=d.label||("Camera "+(i+1));
+        sel.appendChild(o);
+      });
+      sel.classList.remove("hidden");
+      sel.onchange=function(){
+        closeCamera(cam);
+        openCamera(cam,sel.value).then(initZoom).catch(function(){});
+      };
+    }
+    stayAwake("r");
+    startScanning();
+  }).catch(function(e){
+    $("camNote").textContent="The browser would not open a camera: "+e.name+". If you opened this file directly from disk, serve it from localhost instead — most browsers only allow camera access on http://localhost or https.";
+  });
+};
+$("stopCam").onclick=function(){ stopReceiver(); };
+
+function initZoom(stream){
+  var track=stream.getVideoTracks()[0];
+  var caps=track.getCapabilities?track.getCapabilities():null;
+  var knob=$("zoomKnob"), z=$("zoom");
+  if(caps&&caps.zoom&&caps.zoom.max>caps.zoom.min){
+    knob.classList.remove("hidden");
+    z.min=caps.zoom.min; z.max=caps.zoom.max; z.step=caps.zoom.step||0.1;
+    var cur=(track.getSettings&&track.getSettings().zoom)||caps.zoom.min;
+    z.value=cur; $("zoomV").textContent=(+cur).toFixed(1)+"×";
+    z.oninput=function(){
+      track.applyConstraints({advanced:[{zoom:+z.value}]}).catch(function(){});
+      $("zoomV").textContent=(+z.value).toFixed(1)+"×";
+    };
+  } else knob.classList.add("hidden");
+  var fKnob=$("focusKnob"), fl=$("focusLock"), fr=$("focus");
+  var canManual=caps&&caps.focusMode&&caps.focusMode.indexOf&&caps.focusMode.indexOf("manual")>=0&&caps.focusDistance;
+  if(canManual){
+    fKnob.classList.remove("hidden");
+    fr.min=caps.focusDistance.min; fr.max=caps.focusDistance.max; fr.step=caps.focusDistance.step||0.01;
+    var s0=track.getSettings?track.getSettings():{};
+    if(s0.focusDistance!=null) fr.value=s0.focusDistance;
+    fl.checked=false; fr.disabled=true; $("focusV").textContent="auto";
+    var apply=function(){
+      if(fl.checked){
+        fr.disabled=false;
+        track.applyConstraints({advanced:[{focusMode:"manual",focusDistance:+fr.value}]}).catch(function(){});
+        $("focusV").textContent="locked "+(+fr.value).toFixed(2);
+      } else {
+        fr.disabled=true;
+        track.applyConstraints({advanced:[{focusMode:"continuous"}]}).catch(function(){});
+        $("focusV").textContent="auto";
+      }
+    };
+    fl.onchange=apply;
+    fr.oninput=function(){ if(fl.checked) apply(); };
+  } else fKnob.classList.add("hidden");
+}
+
+/* decode every camera frame: requestVideoFrameCallback where available, rAF otherwise */
+var ENGINE_LABEL={native:"built-in (OS)",zxing:"ZXing (bundled)",jsqr:"jsQR (last resort)"};
+function startScanning(){
+  getEngine().then(function(eng){
+    activeEngine=eng;
+    $("rEng").textContent=ENGINE_LABEL[eng.kind]||eng.kind;
+    var st=cam.srcObject&&cam.srcObject.getVideoTracks()[0];
+    var s=st&&st.getSettings?st.getSettings():{};
+    var camDesc=(s.width&&s.height)?(s.width+"×"+s.height+(s.frameRate?"@"+Math.round(s.frameRate):"")):"";
+    $("camNote").textContent=(eng.kind==="jsqr"
+      ?"Reading with jsQR — dense codes above ~600 B will not decode on this browser. "
+      :"Reading with "+(ENGINE_LABEL[eng.kind])+" — grid streams decode in full. ")
+      +(camDesc?("Camera delivering "+camDesc+"."):"");
+    scanning=true;
+    var schedule=function(){
+      if(!scanning) return;
+      if(cam.requestVideoFrameCallback) cam.requestVideoFrameCallback(pump);
+      else if(window.requestAnimationFrame) requestAnimationFrame(pump);
+      else setTimeout(pump,50);
+    };
+    var pump=function(){
+      if(!scanning) return;
+      if(camBusy){ schedule(); return; }
+      camBusy=true;
+      eng.read(cam,rCanvas,rCtx).then(function(list){
+        camBusy=false;
+        if(list) for(var i=0;i<list.length;i++) handleFrame(list[i].text,list[i].w);
+        schedule();
+      },function(){ camBusy=false; schedule(); });
+    };
+    schedule();
+  });
+}
+function stopReceiver(){
+  scanning=false; camBusy=false;
+  closeCamera(cam);
+  releaseAwake("r");
+  $("startCam").classList.remove("hidden");
+  $("stopCam").classList.add("hidden");
+  $("camSel").classList.add("hidden");
+  $("zoomKnob").classList.add("hidden");
+}
+
+function modulesFor(text,eccIdx){
+  var letters=["L","M","Q","H"], e=letters[eccIdx&3]||"L";
+  for(var v=1;v<=40;v++){
+    try{
+      var q=qrcode(v,e); q.addData(text,"Alphanumeric"); q.make();
+      return q.getModuleCount();
+    }catch(err){}
+  }
+  return 0;
+}
+function handleFrame(txt,codeW){
+  if(!txt||txt.indexOf("A1:")===0) return;
+  var bytes;
+  try{ bytes=LW.base45Decode(txt); }catch(e){ return; }
+  var h=LW.parseHeader(bytes);
+  if(!h) return;
+  if(!dec||h.session!==recvSession){
+    recvSession=h.session; recvFlags=h.flags; recvBs=h.blockSize;
+    sessModules=modulesFor(txt,(h.flags>>2)&3); ppmEma=0;
+    dec=LW.makeDecoder(h.session,h.length,h.blockSize);
+    readCount=0; lastCov=-1; result=null; pendingRaw=null; rateWin=[];
+    $("progPanel").classList.remove("hidden");
+    $("donePanel").classList.add("hidden");
+    resetDoneUI();
+    $("rName").textContent=(h.flags&LW.FLAG_ENC)?"encrypted":"reading…";
+    $("rSize").textContent=fmt(h.length);
+  }
+  if(codeW&&sessModules){
+    var ppm=codeW/sessModules;
+    ppmEma=ppmEma?ppmEma*0.8+ppm*0.2:ppm;
+  }
+  if(dec.push(bytes)){
+    readCount++;
+    rateWin.push(Date.now());
+    if(rateWin.length>60) rateWin.shift();
+  }
+  paint();
+  if(dec.isDone()) finish();
+}
+
+function rateNow(){
+  if(rateWin.length<4) return 0;
+  var span=(rateWin[rateWin.length-1]-rateWin[0])/1000;
+  return span>0?rateWin.length/span:0;
+}
+function paint(){
+  if(!dec) return;
+  $("rGot").textContent=dec.solvedCount+" / "+dec.K;
+  $("rRead").textContent=readCount;
+  var r=rateNow();
+  $("rFps").textContent=r?r.toFixed(1)+"/s":"—";
+  $("rKbs").textContent=r?(r*recvBs/1024).toFixed(1)+" KB/s":"—";
+  if(ppmEma){
+    $("rPpm").textContent=ppmEma.toFixed(1);
+    $("rVerdict").textContent=ppmEma>=4?"comfortable":ppmEma>=3?"adequate":"too dense — closer, or fewer bytes/code";
+  }
+  var pct=Math.floor(dec.solvedCount*100/dec.K);
+  $("covPct").textContent=pct+"%";
+  if(dec.solvedCount!==lastCov){ lastCov=dec.solvedCount; drawCoverage(); drawAck(); }
+}
+
+function drawCoverage(){
+  var cvs=$("cov"), K=dec.K;
+  var cols=Math.min(K,K>600?100:60);
+  var rows=Math.ceil(K/cols);
+  cvs.width=cols*4; cvs.height=rows*4;
+  var g=cvs.getContext("2d");
+  g.fillStyle="#0D1116"; g.fillRect(0,0,cvs.width,cvs.height);
+  for(var i=0;i<K;i++){
+    g.fillStyle=dec.solvedMap[i]?"#4FD1C5":"rgba(255,255,255,.08)";
+    g.fillRect((i%cols)*4,Math.floor(i/cols)*4,3,3);
+  }
+}
+function hex4(n){ return ("0000"+n.toString(16).toUpperCase()).slice(-4); }
+function hex2(n){ return ("00"+Math.min(255,Math.round(n)).toString(16).toUpperCase()).slice(-2); }
+function drawAck(){
+  drawQR($("ackQr"),
+    "A1:"+("00000000"+recvSession.toString(16).toUpperCase()).slice(-8)
+    +":"+hex4(dec.solvedCount)+":"+hex4(dec.K)+":"+hex2(rateNow()),"M");
+}
+
+function resetDoneUI(){
+  $("unlockRow").classList.add("hidden");
+  $("unlockMsg").classList.add("hidden");
+  $("save").classList.remove("hidden");
+  $("doneHash").textContent="";
+  $("rpass").value="";
+  $("donePanel").classList.remove("done","fail");
+}
+
+function finish(){
+  scanning=false; camBusy=false;
+  drawAck();
+  releaseAwake("r");
+  closeCamera(cam);
+  $("startCam").classList.remove("hidden"); $("stopCam").classList.add("hidden");
+  $("zoomKnob").classList.add("hidden");
+  $("focusKnob").classList.add("hidden");
+  pendingRaw=dec.assemble();
+  if(recvFlags&LW.FLAG_ENC){
+    resetDoneUI();
+    $("donePanel").classList.remove("hidden"); $("donePanel").classList.add("done");
+    $("doneTitle").textContent="Received — locked";
+    $("doneMsg").textContent="All "+dec.K+" blocks are in from "+readCount+" codes. Enter the passphrase to unlock and verify.";
+    $("unlockRow").classList.remove("hidden");
+    $("save").classList.add("hidden");
+    $("rpass").focus();
+  } else {
+    openPipeline(pendingRaw,recvFlags,null);
+  }
+}
+
+function openPipeline(payload,flags,pass){
+  var work=Promise.resolve(payload);
+  if(flags&LW.FLAG_ENC){
+    if(!LW.subtleOK()){ fail("This stream is encrypted, and the browser only enables crypto on https or http://localhost — reopen this page from localhost and receive again."); return; }
+    work=work.then(function(b){ return LW.decryptBytes(pass,b); });
+  }
+  work=work.then(function(b){
+    if(!(flags&LW.FLAG_GZ)) return b;
+    return LW.gunzipBytes(b).then(function(g){
+      if(!g) throw {noGz:true};
+      return g;
+    });
+  });
+  work.then(function(buf){
+    var out;
+    try{ out=LW.openContainer(buf); }
+    catch(e){ fail("The blocks all arrived but the file header would not parse. Start the sender again from the beginning."); return; }
+    if(!out.ok){ fail("Every block arrived, but the checksum does not match. Send it again."); return; }
+    result=out;
+    resetDoneUI();
+    $("donePanel").classList.remove("hidden"); $("donePanel").classList.add("done");
+    $("doneTitle").textContent="Complete — checksum verified";
+    $("doneMsg").textContent=out.meta.n+" · "+fmt(out.meta.s)+" · recovered from "+readCount+" codes.";
+    $("rName").textContent=out.meta.n.length>18?out.meta.n.slice(0,16)+"…":out.meta.n;
+    LW.sha256Hex(out.data).then(function(h){
+      if(h&&result===out) $("doneHash").textContent="Fingerprint "+fp(h)+" — should match the sender's.";
+    }).catch(function(){});
+  }).catch(function(e){
+    if(e&&e.noGz){ fail("This stream is gzip-compressed and this browser can't decompress it. Turn compression off on the sender and send again."); return; }
+    if(flags&LW.FLAG_ENC){
+      $("unlockMsg").textContent="That passphrase didn't unlock it — check it and try again.";
+      $("unlockMsg").classList.remove("hidden");
+      return;
+    }
+    fail("The blocks arrived but would not open. Start the sender again from the beginning.");
+  });
+}
+$("unlock").onclick=function(){ if(pendingRaw) openPipeline(pendingRaw,recvFlags,$("rpass").value); };
+$("rpass").onkeydown=function(e){ if(e.key==="Enter") $("unlock").click(); };
+
+function fail(msg){
+  resetDoneUI();
+  $("donePanel").classList.remove("hidden","done"); $("donePanel").classList.add("fail");
+  $("doneTitle").textContent="Something is wrong";
+  $("doneMsg").textContent=msg;
+  $("save").classList.add("hidden");
+  $("unlockRow").classList.add("hidden");
+}
+$("save").onclick=function(){
+  if(!result) return;
+  var blob=new Blob([result.data],{type:result.meta.t||"application/octet-stream"});
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=result.meta.n;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},2000);
+};
+$("again").onclick=function(){
+  dec=null; recvSession=0; recvFlags=0; result=null; pendingRaw=null; readCount=0; rateWin=[];
+  resetDoneUI();
+  $("donePanel").classList.add("hidden");
+  $("progPanel").classList.add("hidden");
+  $("startCam").click();
+};
+
+setRole("send");
+})();
+</script>
+</body>
+</html>
