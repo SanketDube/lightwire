@@ -1,0 +1,28 @@
+Lightwire
+Copyright 2026 Sanket Dube
+
+This product includes software developed by third parties. The full licence
+texts and attributions are in THIRD-PARTY-NOTICES.md, which is distributed
+with this software. A condensed attribution block is also embedded at the top
+of dist/lightwire.html, because that file is designed to travel on its own.
+
+Components licensed under the Apache License, Version 2.0:
+
+  - jsQR — Copyright Cosmo Wolfe and contributors
+    https://github.com/cozmo/jsQR
+    Redistributed unmodified as src/vendor/jsQR.js.
+
+  - ZXing-C++ — Copyright the ZXing-C++ project authors
+    https://github.com/zxing-cpp/zxing-cpp
+    Redistributed unmodified as the compiled WebAssembly binary
+    src/vendor/zxing_reader.wasm.
+
+Components licensed under the MIT licence:
+
+  - qrcode-generator — Copyright (c) 2009 Kazuhiko Arase
+  - zxing-wasm — Copyright (c) 2023 Ze-Zheng Wu
+
+"QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+
+Neither upstream Apache-2.0 project ships a NOTICE file of its own (checked
+2026-08-10), so there is nothing further to propagate under section 4(d).

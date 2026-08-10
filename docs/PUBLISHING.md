@@ -1,11 +1,47 @@
 # Publishing analysis
 
-Nothing has been published. This document exists so the decision can be made
-with the facts already gathered, rather than re-derived.
+**Published 2026-08-10** at `github.com/SanketDube/lightwire`, public, under
+Apache-2.0. This document records the analysis that led there and what is still
+open. The licence blockers listed further down are **closed** — see the
+resolution block immediately below.
 
 **Not legal advice.** The licence facts below were read off the packages
-themselves and should be re-verified against the upstream repositories before
-anything goes public.
+themselves and re-verified against the upstream repositories on 2026-08-10.
+
+---
+
+## Resolution, 2026-08-10
+
+Everything in the "Fix before publishing" list was done before the first push.
+
+| Blocker | What was done |
+|---|---|
+| Choose Lightwire's own licence | **Apache-2.0.** It matches the strictest inbound licence (jsQR and ZXing-C++ are both Apache-2.0) and carries an explicit patent grant, which MIT does not. `LICENSE` is the full text with `Copyright 2026 Sanket Dube`. |
+| Credit ZXing in the visible footer | Footer now reads `Lightwire (Apache-2.0) · works offline · decoders: ZXing-C++ & jsQR (Apache-2.0) · qrcode-generator & zxing-wasm (MIT)`. |
+| Bundle the licence texts | `LICENSE` (Apache-2.0 in full) plus `THIRD-PARTY-NOTICES.md` (both MIT texts, every copyright line, the trademark note, the provenance hash) plus `NOTICE` per Apache convention. |
+| Attribution inside the travelling file | `assemble.py` now injects a comment block into `dist/lightwire.html` immediately **after** the doctype — before it would trigger quirks mode. This is the point most likely to be missed, because a sibling licence file does not travel with a file someone emails to themselves. |
+| State that the WASM binary is unmodified | Recorded in `NOTICE` and `THIRD-PARTY-NOTICES.md`, with the sha256 that matches the upstream glue constant. |
+
+Re-verified at source on 2026-08-10, not taken from the packages: jsQR
+**Apache-2.0** (`package.json`, contributors Cosmo Wolfe and Jefff Nelson),
+zxing-wasm **MIT** (`Copyright (c) 2023 Ze-Zheng Wu`), ZXing-C++
+**Apache-2.0**, qrcode-generator **MIT** (`Copyright (c) 2009 Kazuhiko Arase`).
+**Neither Apache-2.0 project ships a `NOTICE` file** (both 404 at the
+repository root), so section 4(d) propagates nothing further.
+
+**Name:** kept. A GitHub search finds ~24 repositories with "lightwire" in the
+name — a Sketch wireframe plugin (85 stars), two small DI containers, an audio
+engine — none dominant, none in this space, no trademark found. It is a common
+compound word; the collision risk is being one of several, not infringing.
+
+**Still open, deliberately:**
+
+- **No real-camera pass yet.** Every optical number in these docs remains a
+  forecast. The `Send test signal` calibration sweep added on 2026-08-10 makes
+  that pass much easier, but it does not substitute for it.
+- **GitHub Pages is not enabled.** Download-and-verify only, for now. Hosting
+  would make the camera work without the localhost dance, at the cost of asking
+  users to trust a server for an air-gap tool. See the caveat below.
 
 ---
 
@@ -47,24 +83,24 @@ obligations that a single-file distribution makes easy to overlook:
 3. **State that you modified files**, where you did.
 4. **Propagate any `NOTICE` file** contents from upstream, if one exists.
 
-**Current state: the footer credits qrcode-generator (MIT) and jsQR (Apache-2.0)
-but does NOT mention ZXing at all, and no licence texts are bundled.** That is
-the single most concrete blocker to publishing as-is.
+**State before publishing: the footer credited qrcode-generator (MIT) and jsQR
+(Apache-2.0) but did NOT mention ZXing at all, and no licence texts were
+bundled.** That was the single most concrete blocker.
 
-### Fix before publishing
+### Fix before publishing — all done 2026-08-10
 
-- [ ] Add ZXing-C++ / zxing-wasm to the in-app footer credit.
-- [ ] Add a `LICENSES/` folder (or a single `THIRD-PARTY-NOTICES.md`) containing
-      the full MIT and Apache-2.0 texts plus each project's copyright line.
-- [ ] Since the file is meant to travel *alone*, also embed a compact attribution
+- [x] Add ZXing-C++ / zxing-wasm to the in-app footer credit.
+- [x] Add a single `THIRD-PARTY-NOTICES.md` containing the full MIT and
+      Apache-2.0 texts plus each project's copyright line.
+- [x] Since the file is meant to travel *alone*, also embed a compact attribution
       block as an HTML comment at the top of `dist/lightwire.html` — a bundled
       sibling file does not travel with a file someone emails to themselves.
       This is the point most likely to be missed.
-- [ ] Note in the docs that the ZXing WASM binary is redistributed unmodified.
-- [ ] Choose and add Lightwire's own licence.
+- [x] Note in the docs that the ZXing WASM binary is redistributed unmodified.
+- [x] Choose and add Lightwire's own licence.
 
 MIT or Apache-2.0 for Lightwire itself would both be compatible with everything
-vendored. Apache-2.0 has the advantage of matching the strictest inbound licence
+vendored. **Apache-2.0 was chosen**, for matching the strictest inbound licence
 and including an explicit patent grant.
 
 ---
@@ -141,15 +177,16 @@ Every claim below is currently **true** — keep it that way.
 
 ## Pre-publication checklist
 
-- [ ] Choose Lightwire's licence.
-- [ ] Bundle third-party licence texts, **and** embed an attribution comment
+- [x] Choose Lightwire's licence. → Apache-2.0.
+- [x] Bundle third-party licence texts, **and** embed an attribution comment
       inside `dist/lightwire.html` itself.
-- [ ] Credit ZXing in the visible footer.
-- [ ] Verify the name is free.
-- [ ] Re-verify all four upstream licences at their sources.
+- [x] Credit ZXing in the visible footer.
+- [x] Verify the name is free. → kept, with collisions noted above.
+- [x] Re-verify all four upstream licences at their sources.
 - [ ] Manual camera pass on real hardware (see `HANDOFF.md`) — nothing optical
-      has been tested outside forecasts.
-- [ ] Decide hosted-demo vs download-only; if hosted, publish file hashes.
-- [ ] Rewrite the README's speed claims around realistic figures.
+      has been tested outside forecasts. **Still the biggest open item.**
+- [x] Decide hosted-demo vs download-only. → download-only for now; Pages not
+      enabled, so nobody is asked to trust a server for an air-gap tool.
+- [x] Rewrite the README's speed claims around realistic figures.
 - [ ] Test the shipped file once more from a clean download, both `file://` and
       `localhost`, on Windows and one other OS.

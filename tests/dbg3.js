@@ -1,10 +1,10 @@
-const puppeteer=require('/home/claude/.npm-global/lib/node_modules/@mermaid-js/mermaid-cli/node_modules/puppeteer');
+const puppeteer=require(process.env.PUPPETEER_PATH || 'puppeteer');
 const http=require('http'),fsx=require('fs'),pathx=require('path');
 const SRV_ROOT=pathx.join(__dirname,'..','src');
 const srv=http.createServer((req,res)=>{try{res.end(fsx.readFileSync(pathx.join(SRV_ROOT,req.url.slice(1))))}catch(e){res.statusCode=404;res.end()}});
 (async()=>{
  await new Promise(r=>srv.listen(8126,'127.0.0.1',r));
- const b=await puppeteer.launch({headless:'shell',executablePath:'/home/claude/.cache/puppeteer/chrome-headless-shell/linux-131.0.6778.204/chrome-headless-shell-linux64/chrome-headless-shell',args:['--no-sandbox']});
+ const b=await puppeteer.launch({headless:'shell',executablePath:process.env.CHROME_PATH || undefined,args:['--no-sandbox']});
  const p=await b.newPage();
  await p.goto('http://127.0.0.1:8126/test-copy.html',{waitUntil:'load'});
  const out=await p.evaluate(()=>{

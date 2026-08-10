@@ -38,6 +38,30 @@ assert "</scr" + "ipt" not in libsrc.lower(), "libsrc would break the text/plain
 tpl = read(os.path.join(HERE, "template.html"))
 zxb64 = base64.b64encode(read(os.path.join(VENDOR, "zxing_reader.wasm"), "rb")).decode()
 
+# The shipped file is meant to travel alone -- emailed to yourself, carried on a
+# stick -- so a sibling LICENSE file does not travel with it. The attribution
+# has to be inside the artifact. It goes AFTER the doctype: a comment before it
+# would push the browser into quirks mode. No "--" inside, that ends a comment.
+ATTRIBUTION = """<!--
+  Lightwire - single-file optical file transfer over QR codes.
+  Copyright 2026 Sanket Dube. Licensed under the Apache License, Version 2.0.
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  This file embeds, unmodified:
+    jsQR                Copyright Cosmo Wolfe and contributors      Apache-2.0
+    ZXing-C++ (wasm)    Copyright the ZXing-C++ project authors     Apache-2.0
+    qrcode-generator    Copyright (c) 2009 Kazuhiko Arase           MIT
+    zxing-wasm (glue)   Copyright (c) 2023 Ze-Zheng Wu              MIT
+
+  Full licence texts and notices:
+  https://github.com/SanketDube/lightwire/blob/main/THIRD-PARTY-NOTICES.md
+  "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+-->"""
+assert "--" not in ATTRIBUTION[4:-3], "'--' inside an HTML comment ends it early"
+DOCTYPE = "<!DOCTYPE html>"
+assert tpl.startswith(DOCTYPE), "template must open with the doctype"
+tpl = DOCTYPE + "\n" + ATTRIBUTION + tpl[len(DOCTYPE):]
+
 out = (tpl.replace("__LIBSRC__", libsrc)
           .replace("__JSQR__", read(os.path.join(VENDOR, "jsQR.js")))
           .replace("__ZXJS__", read(os.path.join(VENDOR, "zx-reader.js")))

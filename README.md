@@ -14,8 +14,10 @@ sender never needs to know what was missed.
 dist/lightwire.html      ← the deliverable. Open it in a browser. That's it.
 ```
 
-**Status:** working and verified end to end. Not published anywhere yet.
-The publishing decision is deliberately left open — see `docs/PUBLISHING.md`.
+**Status:** working and verified end to end against synthetic feeds. **No pass
+on real optics yet** — every camera figure in these docs is a forecast from
+first principles and is marked as one. Download-only: there is no hosted demo,
+so nobody is asked to trust a server for an air-gap tool.
 
 ---
 
@@ -62,6 +64,48 @@ python3 assemble.py     # writes ../dist/lightwire.html and test-copy.html
 
 No npm install, no bundler, no network. The build is a string-substitution
 script by design — see `docs/DECISIONS.md`.
+
+## Speed, honestly
+
+The presets are labelled with *nominal* rates — codes on screen × swaps per
+second × bytes per code. Real throughput is lower and is set by the camera, not
+the screen. A forecast for a Logitech C920 at 1080p puts the practical sweet
+spot at **2×2 · 1200–1400 B, roughly 60–84 KB/s nominal**, with the 3×3
+"Ludicrous" preset below the decodable pixel threshold on that sensor. See
+`docs/CAMERA.md` for the arithmetic.
+
+No optical figure here has been measured on real hardware yet. Rather than
+publish a table of blessed webcams, the tool measures your own: **Send test
+signal** runs a calibration sweep and tells you which settings your camera
+actually sustains.
+
+## Verifying what you downloaded
+
+This is a security-adjacent tool, so check what you run. Release assets are
+published with their SHA-256; compare before opening:
+
+```bash
+sha256sum lightwire.html
+```
+
+Building from source reproduces the same file — `assemble.py` is string
+substitution over the tracked inputs, with no network and no dependency
+resolution.
+
+## Licence
+
+Lightwire is **Apache-2.0** — see `LICENSE`.
+
+It embeds four third-party components, unmodified: **jsQR** and **ZXing-C++**
+(Apache-2.0), **qrcode-generator** and **zxing-wasm** (MIT). Full texts,
+copyright lines and the WASM provenance hash are in `THIRD-PARTY-NOTICES.md`,
+and a condensed attribution block is embedded in `dist/lightwire.html` itself,
+because that file is meant to travel alone.
+
+No code was taken from any prior optical-transfer tool. The codec, base45
+implementation, container format and wire protocol were written from scratch;
+the projects that informed the design are credited under "Prior art" in
+`THIRD-PARTY-NOTICES.md`.
 
 ## Read this next
 
