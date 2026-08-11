@@ -22,9 +22,27 @@ Consequences, and they are the whole design:
 - **The sender never needs feedback.** It emits fresh mixes forever; the receiver
   stops when it has enough. The back-channel in the UI is a convenience, not a
   requirement.
-- **Cost:** the receiver needs roughly `K × 1.15` frames rather than exactly `K`,
-  where K is the block count. Measured overhead in `tests/test.js` runs 1.13–1.5×,
-  approaching 1.13× as K grows.
+- **Cost:** the receiver needs slightly more than `K` frames, where K is the
+  block count. **Corrected 2026-08-10 — the old figure here was wrong in the
+  wrong direction.** It claimed overhead approached 1.13× as K grows; it does
+  the opposite. Measured with the real codec (`tests/overhead.js`):
+
+  | K | codes needed | overhead |
+  |---|---|---|
+  | 100 | 135 | 1.35× |
+  | 500 | 598 | 1.20× |
+  | 1,000 | 1,087 | 1.09× |
+  | 5,000 | 5,284 | 1.06× |
+  | 16,476 | 16,974 | **1.03×** |
+
+  Small files pay a large relative penalty; large ones converge toward 1.03×.
+  The 1.13–1.5× range in `tests/test.js` is real but was measured at small K.
+  A field run of a 12.57 MB file came back at 1.029×, which matches the table
+  rather than contradicting it.
+
+  **The overhead does not depend on how lossy the link is** — losing 30% of
+  frames changes how long the transfer takes, not how many distinct codes are
+  needed. That is what makes progress estimable at all; see below.
 
 ## Data flow
 
@@ -110,11 +128,22 @@ of an encrypted transfer cannot even see the filename.
 The receiver renders a small QR containing:
 
 ```
-A1:<session 8 hex>:<solved 4 hex>:<K 4 hex>:<rate 2 hex>
+A1:<session 8 hex>:<solved 4 hex>:<K 4 hex>:<rate 2 hex>[:P<pct 2 hex>][:C<...>]
 ```
 
 The sender's optional "Watch receiver" camera reads it to display progress and
-to auto-stop at 100%. Frames beginning with `A1:` are ignored by the receiver's
+to auto-stop at 100%. The two trailing fields are additions that older builds
+never see, because anything past the fourth colon was already ignored:
+
+- `P` — the receiver's **estimated** percentage. The sender prefers it for
+  display, because `solved/K` does not move until the end. `solved` and `K`
+  themselves are untouched, so the auto-stop still fires on real completion
+  and nothing else.
+- `C` — the calibration verdict (`DECISIONS.md` §16).
+
+The code is redrawn on a 700 ms clock rather than when the solved count
+changes. Building a QR costs real work on the decode path, and the old trigger
+meant the code sat frozen for most of a transfer. Frames beginning with `A1:` are ignored by the receiver's
 own decode path so a mirror or reflection cannot confuse it.
 
 ## base45, not base64
@@ -233,6 +262,29 @@ about the sweep requires a second camera.
   The single number that decides whether a camera can do the job.
 - **Optics verdict** — ≥4 comfortable, ≥3 adequate, below 3 too dense.
 - **Measured KB/s** — decode rate × block size. The number to tune against.
+- **Estimated progress** — codes received against codes needed.
+
+### Why progress is an estimate, and why it is not "blocks solved"
+
+The obvious progress bar is solved blocks over K. It is useless here, and the
+reason is intrinsic to fountain coding rather than a defect.
+
+A belief-propagation decoder can only resolve a mix when all but one of its
+ingredients are already known. Early on almost nothing is known, so mixes pile
+up unresolved. One frame eventually completes a chain, that release completes
+others, and the whole pile collapses at once. Measured on a 4 MB file: at the
+halfway point of the transfer the estimate read **54%** and solved blocks read
+**0%**. The truthful number sits at zero for the entire run and then jumps.
+
+So the bar is built on `readCount / codesNeeded(K)`, with `codesNeeded` from
+the measured overhead table above. It is honest about being an estimate, is
+clamped so it can never reach 100% before the file genuinely completes, and
+never moves backwards. The solved-block count is still shown as a separate
+figure in the readout for anyone who wants the literal truth.
+
+The block-coverage grid this replaced was removed in the same change: it drew
+one cell per block, so it grew with the file, and it showed the same stalled
+signal in a form that also pushed the rest of the page off the screen.
 
 ## Files and responsibilities
 

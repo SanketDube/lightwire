@@ -36,6 +36,8 @@ point at your local Chrome. Tests run against `src/test-copy.html` (produced by
 | `test3.js` | Node | Calibration rung nibble: roundtrip over every flag combination, ECC/gzip/encryption bits undisturbed, survives base45, and **a rung-marked stream still decodes on a rung-blind decoder** — the assertion that justifies not bumping the version byte. |
 | `e2e6-calibration.mjs` | Playwright | The whole sweep. Sender walks all six rungs and stops; results table renders; Apply sets the knobs. Receiver buckets by rung, rejects duplicate seeds, tracks px/module, ranks by measured KB/s (a rung with a *lower* code rate wins on bytes), labels the prediction, refuses an ACK whose ladder disagrees. Plus: a rung-0 transfer is untouched by any of it. |
 | `smoke-playwright.mjs` | Playwright | The load-bearing invariants under a browser that is actually installed here: engine cascade, **zero external requests**, footer attribution, 2×2 worker render, full loop at 25% loss. |
+| `e2e7-progress.mjs` | Playwright | The progress estimate: labelled as an estimate, never reaches 100% before the file is genuinely complete, never moves backwards, and **is ahead of solved-blocks mid-transfer** — the assertion that justifies replacing the block grid. Plus the size ceiling: an over-cap file is refused and the refusal states the size, the wait and the memory cost. |
+| `overhead.js` | Node | **Not pass/fail.** Measures how many distinct codes the receiver needs per block, across K. This is where the progress estimate's constants come from; re-run it if the codec or soliton parameters change. |
 
 ## Recorded results
 
@@ -124,6 +126,26 @@ smoke         engine=zxing with all outside requests blocked
               40 KB file recovered through 25% loss, checksum verified
               externalRequests: 0 at start and end
 ```
+
+**Progress estimate and size ceiling (`e2e7-progress.mjs`, `overhead.js`)**,
+2026-08-10:
+
+```
+overhead.js   K=100  -> 1.35x      K=5000  -> 1.057x
+              K=500  -> 1.196x     K=10000 -> 1.039x
+              K=1000 -> 1.087x     K=16476 -> 1.030x
+              with 30% of codes lost in flight: 1.033x at K=16476
+              -- loss changes how LONG it takes, not how many are needed
+
+e2e7          K=5243, halfway through the transfer:
+                 estimate 54%   solved blocks 0%
+              never hit 100% early, never moved backwards, landed on 100%
+              40 MB file refused; message names 40.00 MB and the 32.00 MB
+              ceiling, the wait, and the memory cost
+```
+
+That 54%-vs-0% line is the whole argument for the change: the truthful number
+was unwatchable.
 
 Every optical figure above is **simulated** — frames are handed to the decoder
 with a code width in notional camera pixels. What is proven is the machinery:

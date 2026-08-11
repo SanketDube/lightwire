@@ -30,9 +30,48 @@ Roughly, at ECC level L:
 Capacity ceiling is QR v40-L alphanumeric = 4296 characters, so 2000 B fits with
 headroom. Higher ECC levels cost modules for the same payload.
 
+## The first field run, 2026-08-10
+
+The first time any of this met a real camera. Read off the receiving screen at
+the end of a genuine transfer, not simulated:
+
+| | |
+|---|---|
+| File | 12.82 MB `.pptx` |
+| On the wire | 11.99 MB (gzip declined it, as expected for a compressed format) |
+| Blocks | 15,718 at 800 B |
+| Codes read | 16,176 — **1.029x overhead** |
+| Decode rate | 77.5 codes/s |
+| **Measured throughput** | **60.6 KB/s** |
+| Engine | **ZXing (bundled)** |
+| px / module | 3.3 — "adequate" |
+| Result | Complete, checksum verified |
+
+Three things this settles:
+
+1. **The WASM engine works on real hardware.** That was the first line of the
+   manual checklist and the one that would have invalidated grid mode entirely.
+2. **60.6 KB/s is real optical throughput**, not a nominal figure. Every KB/s
+   number published before this was arithmetic.
+3. **1.029x overhead at K=15,718 matches `tests/overhead.js`** (1.030x at
+   K=16,476) and contradicts the old "approaching 1.13x" claim, which has been
+   corrected in `ARCHITECTURE.md`.
+
+Worth noting it held 77.5 codes/s at only **3.3 px per module** — barely above
+the 3.0 floor where decoding is expected to fall apart. The forecasts in this
+file assumed that thin a margin would cost real throughput. It did not.
+
+**Still unknown, so not claimed:** the camera model, the operating system, and
+which grid and swap rate were in use. Only the block size (800 B) is inferable.
+A calibration sweep on the same hardware would fill those in, and would be the
+first ranked optical table this project has.
+
+---
+
 ## Worked forecast: Logitech C920 (1080p)
 
-Assuming the grid fills the camera frame:
+**These remain forecasts.** They predate the field run above and have not been
+reconciled against it. Assuming the grid fills the camera frame:
 
 | Setting | Modules | Code span | px/module | Verdict |
 |---|---|---|---|---|

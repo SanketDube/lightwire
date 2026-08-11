@@ -17,9 +17,10 @@ dist/lightwire.html      ← the deliverable. Open it in a browser. That's it.
 **[Download the latest release](https://github.com/SanketDube/lightwire/releases/latest)**
 — one file, nothing to install. Copy it to both machines and open it.
 
-**Status:** working and verified end to end against synthetic feeds. **No pass
-on real optics yet** — every camera figure in these docs is a forecast from
-first principles and is marked as one. Download-only: there is no hosted demo,
+**Status:** working, and it has now moved a real file across a real camera —
+a 12.82 MB presentation at **60.6 KB/s**, checksum verified (`docs/CAMERA.md`).
+That is one run on one machine, so the per-camera *forecast tables* in the docs
+are still forecasts and still say so. Download-only: there is no hosted demo,
 so nobody is asked to trust a server for an air-gap tool.
 
 > **Built by prompting, not by typing code.** I am not a programmer. Lightwire
@@ -95,9 +96,14 @@ exists for. Your passphrase is the whole of the security, so make it long.
 ### How fast?
 
 Fast enough for a document, a key file, a spreadsheet, a config. Not for a
-video. Think in the region of tens of kilobytes per second, set by your webcam
-rather than by either computer — and there is a hard 32 MB limit with a warning,
-because anything bigger takes hours.
+video. A field run moved a 12.8 MB presentation at **60.6 KB/s** on an ordinary
+webcam. The limit is the camera, not either computer.
+
+**There is a hard 32 MB ceiling**, and a bigger file is refused with a message
+telling you what the wait would have been. Two reasons, both real: the whole
+file sits in memory on both machines and gets copied to each render worker, so
+a 32 MB file already costs around 140 MB of browser memory — and at optical
+speeds a gigabyte is most of a day. Zip the parts you need instead.
 
 You do not have to guess at your own camera. **Click "Send test signal"** and
 the tool spends about forty seconds trying six different settings, then the
@@ -138,7 +144,8 @@ file in. Codes start streaming immediately. Click *Send test signal* first if
 you want the tool to pick your settings for you.
 
 **Receiving machine:** open the same file, switch to *Receive*, click
-*Start camera*, point it at the sending screen. Watch the coverage grid fill.
+*Start camera*, point it at the sending screen. Watch the estimated progress
+bar climb.
 When it says "Complete — checksum verified", click *Save file*.
 
 **Camera access needs a secure context.** Chrome treats `file://` as secure for
@@ -241,7 +248,9 @@ Two things follow from that, and it is only fair to say them plainly:
 - **Read the code before you trust it with anything that matters.** That advice
   is not special to this project, but it carries extra weight for a
   security-adjacent tool whose author cannot audit it line by line. What I can
-  vouch for is stated as verified; what is a forecast is labelled a forecast.
+  vouch for is stated as verified; what is a forecast is labelled a forecast,
+  and the one real-hardware measurement is dated and separated from the
+  arithmetic.
 - **The reasoning is written down on purpose.** `docs/DECISIONS.md` records why
   things are the way they are, including what was tried and abandoned. If you
   are reviewing this, start there — it will tell you where the bodies are

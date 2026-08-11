@@ -242,6 +242,63 @@ observed.
 **Discard the first 1.5 s of every rung.** The code size just changed and
 autofocus hunts. Including it would score the transition, not the setting.
 
+## 17. The block grid is gone, and progress is an estimate
+
+The receiver used to draw one cell per block and fill them in as blocks were
+solved. Two problems, one cosmetic and one fundamental.
+
+**Cosmetic:** the grid grew with the file. At four pixels per block, stretched
+to the panel width, its on-screen height is `(rows / columns) x width`. Columns
+were fixed at 100, so a 12 MB transfer produced 165 rows -- a grid two thirds
+taller than the panel is wide, pushing the ACK code off the bottom of the
+window. That was fixed first by widening the grid instead of deepening it.
+
+**Fundamental, and why the grid went anyway:** solved-blocks is not progress.
+A belief-propagation decoder can only resolve a mix when all but one of its
+ingredients are already known, so early on nothing resolves and mixes pile up.
+One frame eventually completes a chain, the release cascades, and the pile
+collapses at once. Measured on a 4 MB file at the halfway point of the
+transfer: **estimate 54%, solved blocks 0%.** A user watching the honest number
+sees a dead bar for minutes and then a jump. The grid was a prettier way of
+showing the same nothing.
+
+So the bar counts **codes received against codes needed**. Three properties
+make that defensible:
+
+1. **The overhead factor was measured, not guessed** (`tests/overhead.js`).
+   1.35x at K=100 falling to 1.03x at K=16,476. Note this also corrected a
+   wrong claim in `ARCHITECTURE.md`, which said overhead *approached* 1.13x as
+   K grew. It goes the other way.
+2. **It does not depend on loss.** `readCount` only counts codes that arrived
+   and were useful, so dropping 30% of frames changes how long the transfer
+   takes, not how many codes are needed. A progress estimate built on this is
+   stable on a bad link, where one built on elapsed time would not be.
+3. **It cannot lie in the direction that matters.** Clamped to 99 until the
+   file genuinely completes, and never allowed to move backwards. The literal
+   solved-block count stays visible in the readout for anyone who wants it.
+
+The word "Estimated" is on the label because it is one. If the codec or the
+soliton parameters change, re-run `tests/overhead.js` and update the table in
+`template.html`.
+
+## 18. The 32 MB ceiling, and what a 2 GB file would actually do
+
+It is refused, with a message that now states the size, the ceiling, and what
+the wait would have been at the settings currently selected.
+
+The ceiling is not timidity. Measured at the cap: a 32 MB file settles at about
+**140 MB of browser heap**, roughly 5x the file, because the payload is held
+whole *and* a full copy is handed to each render worker. Linear scaling puts a
+2 GB file near 10 GB before a single code is drawn, which no browser will do --
+and 2 GB exceeds the ArrayBuffer ceiling in several engines regardless.
+
+Time is the wall people actually feel. At the 60.6 KB/s measured in the field,
+2 GB is roughly **9.6 hours** of unbroken streaming with both screens awake.
+
+If the cap is ever raised, the memory multiplier is the thing to fix first:
+give the workers a shared view of the payload rather than a copy each, and the
+5x drops to something near 2x. Nobody has needed it yet.
+
 ---
 
 ## Explicitly deferred

@@ -36,9 +36,10 @@ compound word; the collision risk is being one of several, not infringing.
 
 **Still open, deliberately:**
 
-- **No real-camera pass yet.** Every optical number in these docs remains a
-  forecast. The `Send test signal` calibration sweep added on 2026-08-10 makes
-  that pass much easier, but it does not substitute for it.
+- **One real-camera run, done 2026-08-10** — 12.82 MB at 60.6 KB/s, engine
+  confirmed as the bundled ZXing, recorded in `CAMERA.md`. Everything else
+  optical is still a forecast: no calibration sweep has been run on real
+  hardware, so there is no ranked table and no per-setting measurement yet.
 - **GitHub Pages is not enabled.** Download-and-verify only, for now. Hosting
   would make the camera work without the localhost dance, at the cost of asking
   users to trust a server for an air-gap tool. See the caveat below.

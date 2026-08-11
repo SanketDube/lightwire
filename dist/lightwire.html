@@ -104,6 +104,8 @@ video{width:100%;max-width:300px;border:1px solid var(--line);border-radius:2px;
 .verdict b{color:var(--accent);font-weight:400}
 .bar{height:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:2px;overflow:hidden;margin-top:10px}
 .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s linear}
+.bar.tall{height:12px;border-radius:2px}
+.covlabel b{font-size:13px}
 table.cal{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;margin-top:14px}
 table.cal th{text-align:left;font-weight:400;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -306,8 +308,9 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
       <div class="card small"><canvas id="ackQr"></canvas></div>
       <p class="note" style="text-align:center;margin:0">Show this to the sender's camera for live progress</p>
     </div>
-    <div class="covlabel" style="margin-top:16px"><span>Blocks recovered</span><b id="covPct">0%</b></div>
-    <div class="coverage"><canvas id="cov"></canvas></div>
+    <div class="covlabel" style="margin-top:18px"><span>Estimated progress</span><b id="covPct">0%</b></div>
+    <div class="bar tall"><i id="progBar"></i></div>
+    <p class="note" id="progNote" style="margin-top:8px">An estimate. The file is only readable once every block is solved, and that happens in a rush near the end.</p>
   </div>
 </section>
 
@@ -13470,8 +13473,27 @@ $("calDone").onclick=function(){
   $("pickPanel").classList.remove("hidden");
   $("knobPanel").classList.remove("hidden");
 };
+/* Why there is a ceiling at all, since the question comes up:
+   this tool holds the entire file in memory, and then hands a full copy to
+   each render worker. Measured at the cap: a 32 MB file settles around 140 MB
+   of heap, roughly 5x the file. Scaled up, a 2 GB file would want ~10 GB
+   before it drew a single code, and the browser would refuse long before that.
+   Time is the second wall and the one people feel: even at a good measured
+   optical rate, gigabytes take most of a day. So the cap is a real limit, not
+   timidity -- and the message says what the wait would actually be at the
+   settings currently selected, rather than a vague "hours". */
+var SIZE_CAP=32*1024*1024;
 function load(f){
-  if(f.size>32*1024*1024){ alert("That file is "+fmt(f.size)+". Anything over about 32 MB will take hours on a light link — send a smaller file or an archive of the parts you need."); return; }
+  if(f.size>SIZE_CAP){
+    var perSec=(+$("fps").value)*gridN*gridN*(+$("bs").value);
+    var hrs=f.size/perSec/3600;
+    alert("That file is "+fmt(f.size)+", and Lightwire stops at "+fmt(SIZE_CAP)+".\n\n"
+      +"At your current setting that would be about "
+      +(hrs>=1?hrs.toFixed(1)+" hours":Math.round(hrs*60)+" minutes")
+      +" of unbroken streaming, and the whole file has to sit in memory on both machines while it happens.\n\n"
+      +"Send a smaller file, or a zip of just the parts you need.");
+    return;
+  }
   f.arrayBuffer().then(function(buf){
     startFile(new Uint8Array(buf),f.name,f.type||"application/octet-stream");
   });
@@ -13617,11 +13639,19 @@ function startWatching(){
             /* trailing "C…" field = the receiver's calibration verdict. Older
                builds simply never see it; the K=0 it rides with makes them
                skip the frame instead of misreading it as progress. */
-            for(var c=5;c<parts.length;c++) if(parts[c].charAt(0)==="C") takeRecommendation(parts[c]);
+            var est=null;
+            for(var c=5;c<parts.length;c++){
+              if(parts[c].charAt(0)==="C") takeRecommendation(parts[c]);
+              else if(parts[c].charAt(0)==="P") est=parseInt(parts[c].slice(1),16);
+            }
             var got=parseInt(parts[2],16),K=parseInt(parts[3],16);
             var rate=parts.length>4?parseInt(parts[4],16):null;
             if(!K||isNaN(got)) continue;
-            var pct=Math.floor(got*100/K);
+            /* Prefer the receiver's estimate when it sends one. Solved-over-K is
+               the truth but it does not move until the very end, so on its own
+               it reads as a stalled transfer for minutes at a time. */
+            var pct=(est!==null&&!isNaN(est))?Math.min(99,est):Math.floor(got*100/K);
+            if(got>=K) pct=100;
             $("sAck").textContent=pct+"%"+(rate?" · "+rate+"/s":"");
             if(got>=K){
               $("sAck").textContent="done";
@@ -13665,7 +13695,7 @@ function stopWatching(){
 }
 
 /* ================= RECEIVER ================= */
-var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastCov=-1,result=null;
+var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastPct=-1,result=null,ackClock=null;
 var activeEngine=null,sessModules=0,ppmEma=0;
 var pendingRaw=null;
 var calRuns={},calLast=0,calEndTimer=null,calSeen=false,rcalRec=null,calPaintAt=0;
@@ -13772,7 +13802,7 @@ function startScanning(){
   });
 }
 function stopReceiver(){
-  scanning=false; camBusy=false;
+  scanning=false; camBusy=false; stopAckClock();
   closeCamera(cam);
   releaseAwake("r");
   $("startCam").classList.remove("hidden");
@@ -13802,12 +13832,13 @@ function handleFrame(txt,codeW){
     recvSession=h.session; recvFlags=h.flags; recvBs=h.blockSize;
     sessModules=modulesFor(txt,(h.flags>>2)&3); ppmEma=0;
     dec=LW.makeDecoder(h.session,h.length,h.blockSize);
-    readCount=0; lastCov=-1; result=null; pendingRaw=null; rateWin=[];
+    readCount=0; lastPct=-1; result=null; pendingRaw=null; rateWin=[];
     $("progPanel").classList.remove("hidden");
     $("donePanel").classList.add("hidden");
     resetDoneUI();
     $("rName").textContent=(h.flags&LW.FLAG_ENC)?"encrypted":"reading…";
     $("rSize").textContent=fmt(h.length);
+    drawAck(); startAckClock();
   }
   if(codeW&&sessModules){
     var ppm=codeW/sessModules;
@@ -13989,41 +14020,68 @@ function paint(){
     $("rPpm").textContent=ppmEma.toFixed(1);
     $("rVerdict").textContent=ppmEma>=4?"comfortable":ppmEma>=3?"adequate":"too dense — closer, or fewer bytes/code";
   }
-  var pct=Math.floor(dec.solvedCount*100/dec.K);
-  $("covPct").textContent=pct+"%";
-  if(dec.solvedCount!==lastCov){ lastCov=dec.solvedCount; drawCoverage(); drawAck(); }
+  var pct=progressPct();
+  if(pct!==lastPct){
+    lastPct=pct;
+    $("covPct").textContent=pct+"%";
+    $("progBar").style.width=pct+"%";
+  }
 }
 
-function drawCoverage(){
-  var cvs=$("cov"), K=dec.K;
-  var cols=Math.min(K,K>600?100:60);
-  var rows=Math.ceil(K/cols);
-  /* The canvas is drawn at 4px per block and then stretched to the panel width,
-     so its height on screen is (rows/cols) x that width. At a fixed 100 columns
-     a 12 MB file gives 158 rows -- a grid half again as tall as the panel is
-     wide, which pushes everything under it off the screen. Widen the grid
-     instead until it is no more than a third as tall as it is wide. Small
-     files never trip this, so their layout is unchanged. */
-  var MAX_RATIO=0.35;
-  if(rows>cols*MAX_RATIO){
-    cols=Math.min(K,Math.ceil(Math.sqrt(K/MAX_RATIO)));
-    rows=Math.ceil(K/cols);
+/* ---- how far along are we, really? ----
+   Not "blocks solved". A fountain decoder stockpiles mixes it cannot untangle
+   yet and then collapses the whole pile in one step, so solved-blocks sits near
+   zero for almost the entire transfer and jumps to 100% at the end. True, and
+   useless to watch.
+   What moves smoothly is codes RECEIVED against codes NEEDED. Needed is
+   K x an overhead factor, and that factor was measured with the real codec
+   (tests/overhead.js) rather than guessed:
+       K=200 -> 1.45   K=1000 -> 1.09   K=5000 -> 1.06   K=16476 -> 1.03
+   Small files pay a big relative penalty, large ones converge toward 1.03.
+   The factor is independent of how lossy the link is, because readCount only
+   counts codes that arrived and were useful -- dropping 30% of frames changes
+   how LONG it takes, not how many are needed. That is what makes this
+   estimable at all. */
+var NEED=[[200,1.45],[500,1.20],[1000,1.09],[2500,1.08],[5000,1.06],[10000,1.04],[20000,1.03]];
+function codesNeeded(K){
+  if(K<=NEED[0][0]) return Math.ceil(K*NEED[0][1]);
+  for(var i=1;i<NEED.length;i++){
+    if(K<=NEED[i][0]){
+      var a=NEED[i-1],b=NEED[i];
+      var t=(Math.log(K)-Math.log(a[0]))/(Math.log(b[0])-Math.log(a[0]));
+      return Math.ceil(K*(a[1]+(b[1]-a[1])*t));
+    }
   }
-  cvs.width=cols*4; cvs.height=rows*4;
-  var g=cvs.getContext("2d");
-  g.fillStyle="#0D1116"; g.fillRect(0,0,cvs.width,cvs.height);
-  for(var i=0;i<K;i++){
-    g.fillStyle=dec.solvedMap[i]?"#4FD1C5":"rgba(255,255,255,.08)";
-    g.fillRect((i%cols)*4,Math.floor(i/cols)*4,3,3);
-  }
+  return Math.ceil(K*NEED[NEED.length-1][1]);
 }
+function progressPct(){
+  if(!dec) return 0;
+  if(dec.isDone()) return 100;
+  /* never claim 100 before it is true, and never go backwards */
+  return Math.max(lastPct<0?0:lastPct,Math.min(99,Math.floor(readCount*100/codesNeeded(dec.K))));
+}
+
 function hex4(n){ return ("0000"+n.toString(16).toUpperCase()).slice(-4); }
 function hex2(n){ return ("00"+Math.min(255,Math.round(n)).toString(16).toUpperCase()).slice(-2); }
+/* The solved/K pair stays exactly as it was, because the sender's auto-stop
+   must fire on real completion and nothing else. The estimate rides alongside
+   as an appended field, which older builds simply do not see. */
 function drawAck(){
+  if(!dec) return;
   drawQR($("ackQr"),
     "A1:"+("00000000"+recvSession.toString(16).toUpperCase()).slice(-8)
-    +":"+hex4(dec.solvedCount)+":"+hex4(dec.K)+":"+hex2(rateNow()),"M");
+    +":"+hex4(dec.solvedCount)+":"+hex4(dec.K)+":"+hex2(rateNow())
+    +":P"+hex2(progressPct()),"M");
 }
+/* Redrawn on a timer rather than from the decode path: building a QR costs
+   real work, and the old trigger (solved-block count changed) meant the code
+   sat frozen for most of a transfer -- the same stall that made the block grid
+   useless. */
+function startAckClock(){
+  if(ackClock) return;
+  ackClock=setInterval(function(){ if(dec) drawAck(); },700);
+}
+function stopAckClock(){ if(ackClock){ clearInterval(ackClock); ackClock=null; } }
 
 function resetDoneUI(){
   $("unlockRow").classList.add("hidden");
@@ -14050,7 +14108,7 @@ function announceDone(tab){
 
 function finish(){
   scanning=false; camBusy=false;
-  drawAck();
+  stopAckClock(); drawAck();
   releaseAwake("r");
   closeCamera(cam);
   $("startCam").classList.remove("hidden"); $("stopCam").classList.add("hidden");

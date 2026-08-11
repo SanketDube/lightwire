@@ -15,13 +15,18 @@ and the headless test suite passes. Three build generations happened:
 4. **v3.1 (2026-08-10)** — published as `github.com/SanketDube/lightwire` under
    Apache-2.0 with full third-party attribution, and the **calibration sweep**
    added to `Send test signal`.
+5. **v3.2 (2026-08-10)** — first field run (12.57 MB at 60.6 KB/s, 3.3 px per
+   module, on real optics). Receive screen reordered around it: result at the
+   top, block grid replaced by an estimated progress bar, ACK code moved above
+   anything that grows with the file. `DECISIONS.md` §17 and §18.
 
-`dist/lightwire.html` is the current build. It has **not** been tested against a
-real camera — the development environment has none. Every optical number in the
-docs is a forecast from first principles, clearly marked as such. **This applies
-to calibration too:** the scoring, ranking and recommendation are tested against
-a simulated optical link, so the machinery is proven and the numbers it will
-report on real hardware are not.
+`dist/lightwire.html` is the current build. **One real-camera transfer has now
+happened** — 12.82 MB at 60.6 KB/s, engine confirmed as the bundled ZXing, full
+figures in `CAMERA.md`. Everything else optical is still a forecast from first
+principles and is marked as such, including the whole of `CAMERA.md`'s C920
+table. **The calibration sweep has never run on real hardware:** its scoring,
+ranking and recommendation are tested only against a simulated link, so the
+machinery is proven and no ranked optical table exists yet.
 
 Published 2026-08-10. See `PUBLISHING.md` for what that closed and what it did
 not.
@@ -45,12 +50,14 @@ not.
 
 ## Immediate next steps
 
-**Highest value, and now the only real blocker: a manual pass on real
-hardware.** Everything below is untested outside forecasts. The calibration
-sweep makes most of it a single 40-second run instead of an afternoon.
+**Highest value: run one calibration sweep on the hardware that already did the
+12.82 MB transfer.** That single 40-second run produces this project's first
+ranked optical table and closes most of what is left below.
 
-- [ ] Windows Chrome → confirm the engine readout says **ZXing (bundled)**, not
-      jsQR. If it says jsQR, the WASM embed failed and grid mode is worthless.
+- [x] Confirm the engine readout says **ZXing (bundled)**, not jsQR. **Done
+      2026-08-10** — a real run reported `ZXing (bundled)`, so the WASM embed
+      survives on real hardware and grid mode is not worthless. OS unrecorded;
+      worth re-confirming specifically on Windows.
 - [ ] Confirm the delivered camera resolution matches expectations (browsers
       downgrade silently).
 - [ ] **Run one calibration sweep** and record the whole table — that is the
@@ -82,11 +89,19 @@ the forecast tables in `CAMERA.md` around them, and relabel the presets, which
   decode above ~600 B. Those browsers are effectively limited to Steady mode.
   Fixable by shipping a second WASM build or accepting the limitation loudly.
 - **File size is 1.65 MB**, ~940 KB of which is the decoder engine. Deliberate.
-- **32 MB soft cap** on input, with a warning. Arbitrary but sane — larger files
-  take hours optically.
+- **32 MB cap** on input. Not arbitrary: measured, a 32 MB file already costs
+  ~140 MB of browser heap (the payload is held whole *and* copied to every
+  render worker), and at real optical speed a gigabyte is most of a day. The
+  refusal message now states the size, the wait at current settings, and the
+  memory cost. To raise it, fix the 5x memory multiplier first — share the
+  payload with the workers instead of copying it. `DECISIONS.md` §18.
 - **Ludicrous 3×3 is aspirational on 1080p.** The preset label says 189 KB/s
   nominal; the C920 forecast says the optics will not sustain it. Consider
   relabelling the presets with realistic ranges once measured.
+- **Progress is an estimate and says so.** It cannot be exact: the honest
+  figure (solved blocks) is unwatchable on this codec -- 0% at the halfway
+  point of a real transfer. `DECISIONS.md` §17. If the codec ever changes,
+  re-run `tests/overhead.js` and update the `NEED` table in `template.html`.
 - **The calibration ladder is fixed at six settings.** It cannot recommend
   anything it did not send — 2000 B, or ECC levels above L, are outside it. The
   verdict extrapolates one step beyond the winner and says it is extrapolating.
