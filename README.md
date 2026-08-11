@@ -209,7 +209,7 @@ the SHA-256 of its asset in the release notes. Compare before opening:
 
 ```bash
 sha256sum lightwire.html
-# v3.1.0: 273362399333dd3d178eaad7ad7fddcaabe7accef4b719215c80cf1d3d1487be
+# v3.2.0: a08beb7a0ca2f28d78069226a9c856225496a514417120150f813d1f405fc6e0
 ```
 
 Building from source reproduces the same file — `assemble.py` is string
