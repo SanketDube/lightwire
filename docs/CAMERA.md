@@ -89,6 +89,18 @@ receiving screen mid-transfer:
    than cautious. It is now 512 MB hard, with a warning above 64 MB.
    See `DECISIONS.md` §18.
 
+### A throughput bug the 300 MB run exposed
+
+The operator reported the transfer *"slowed down to nearly 10-15% of usual
+speed towards the end"*. It was not the camera and not the codec. The block
+coverage grid drew one rectangle per block — 393,217 of them — every time the
+solved count changed, and the solved count changes on nearly every code once
+the decode cascade starts. Measured: **177 ms per redraw**, against the 7.4 ms
+per code a 135 codes/s link allows. The tail cost about an hour of wall clock.
+
+Fixed in v3.2.0 by removing the grid entirely and moving the ACK redraw onto a
+timer. `DECISIONS.md` §17.
+
 ### A measurement bug the 300 MB run exposed
 
 Mid-run the receiver reported **141.5 codes/s**. That figure is impossible:

@@ -281,6 +281,46 @@ The word "Estimated" is on the label because it is one. If the codec or the
 soliton parameters change, re-run `tests/overhead.js` and update the table in
 `template.html`.
 
+### The grid was also a throughput bug, which was found afterwards
+
+Removing it turned out to matter for a second reason nobody had noticed. The
+old `paint()` did this:
+
+```js
+if (dec.solvedCount !== lastCov) { lastCov = dec.solvedCount; drawCoverage(); drawAck(); }
+```
+
+`drawCoverage()` issues **one `fillRect` per block**. At 393,217 blocks that is
+393,217 rectangles, and it fired once for every code received whose arrival
+changed the solved count.
+
+For most of a transfer the solved count barely moves (§17), so it almost never
+ran. Then the cascade begins, the count changes on nearly every code, and it
+runs on nearly every code. Measured at K=393,217: **177 ms per redraw.** A
+camera delivering 135 codes/s has 7.4 ms per code to spend, so the ceiling
+collapses to about **5.6 codes/s — 4% of the rate up to that point.**
+
+This was reported from the field before it was understood: *"it slowed down to
+nearly 10-15% of usual speed towards the end"* on a 300 MB transfer. The tail
+cost roughly an extra hour of wall clock, spent entirely on drawing rectangles.
+
+The decoder itself does genuinely slow during the cascade — measured in Node at
+K=393,217, `push` throughput falls from ~12,000/s to ~1,600/s, because every
+newly solved block must be XORed into each of the ~14.7 pending mixes that
+reference it. But 1,600/s is still more than ten times any optical rate, so
+that part is invisible. **The visible collapse was the canvas, not the codec.**
+
+Two changes fixed it, both already made for other reasons:
+
+- The grid is gone. The replacement writes two DOM properties, and only when
+  the integer percentage changes — which during a cascade is at most twice.
+- `drawAck()` moved off the decode path onto a 700 ms clock. It was building a
+  QR code on every solved-count change for the same reason.
+
+**The general lesson, worth more than the fix:** nothing whose cost scales with
+the file may sit on the per-code path. That path runs at the camera's frame
+rate and must stay O(1).
+
 ## 18. The size ceiling: 32 MB was wrong, 512 MB with a warning is the fix
 
 The original build refused anything over 32 MB. That number was never measured
