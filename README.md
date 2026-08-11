@@ -17,11 +17,12 @@ dist/lightwire.html      ← the deliverable. Open it in a browser. That's it.
 **[Download the latest release](https://github.com/SanketDube/lightwire/releases/latest)**
 — one file, nothing to install. Copy it to both machines and open it.
 
-**Status:** working, and it has now moved a real file across a real camera —
-a 12.82 MB presentation at **60.6 KB/s**, checksum verified (`docs/CAMERA.md`).
-That is one run on one machine, so the per-camera *forecast tables* in the docs
-are still forecasts and still say so. Download-only: there is no hosted demo,
-so nobody is asked to trust a server for an air-gap tool.
+**Status:** working on real hardware. Measured runs so far: a 12.82 MB
+presentation at **60.6 KB/s**, and **300 MB twice** at up to **83.6 KB/s** —
+393,217 blocks, checksums verified (`docs/CAMERA.md`). The per-camera *forecast
+tables* in the docs are still forecasts and still say so; one of them has
+already been proved too pessimistic. Download-only: there is no hosted demo, so
+nobody is asked to trust a server for an air-gap tool.
 
 > **Built by prompting, not by typing code.** I am not a programmer. Lightwire
 > was designed and written by **Claude Code**, from my prompts, over a handful
@@ -95,15 +96,18 @@ exists for. Your passphrase is the whole of the security, so make it long.
 
 ### How fast?
 
-Fast enough for a document, a key file, a spreadsheet, a config. Not for a
-video. A field run moved a 12.8 MB presentation at **60.6 KB/s** on an ordinary
-webcam. The limit is the camera, not either computer.
+Measured, not estimated: **83.6 KB/s** moving a 300 MB file on an ordinary
+webcam, and 60.6 KB/s on a 12.8 MB one. Fast enough for documents, key files,
+spreadsheets, archives. Not for video. The limit is the camera, not either
+computer — and one adjustment mattered more than any setting: **focusing the
+camera by hand** took the same transfer from 63.9 to 83.6 KB/s, because
+autofocus hunts on a static screen.
 
-**There is a hard 32 MB ceiling**, and a bigger file is refused with a message
-telling you what the wait would have been. Two reasons, both real: the whole
-file sits in memory on both machines and gets copied to each render worker, so
-a 32 MB file already costs around 140 MB of browser memory — and at optical
-speeds a gigabyte is most of a day. Zip the parts you need instead.
+Sizes: anything under **64 MB** just goes. Between 64 MB and **512 MB** it asks
+first, telling you the wait and the memory it will need. Above that it refuses.
+The ceiling is the *receiving* machine — it holds every code it has caught
+until the end, which costs roughly four times the file size in memory, so
+300 MB needs about 1.2 GB of browser to land.
 
 You do not have to guess at your own camera. **Click "Send test signal"** and
 the tool spends about forty seconds trying six different settings, then the

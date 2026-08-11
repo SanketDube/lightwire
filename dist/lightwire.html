@@ -13473,26 +13473,47 @@ $("calDone").onclick=function(){
   $("pickPanel").classList.remove("hidden");
   $("knobPanel").classList.remove("hidden");
 };
-/* Why there is a ceiling at all, since the question comes up:
-   this tool holds the entire file in memory, and then hands a full copy to
-   each render worker. Measured at the cap: a 32 MB file settles around 140 MB
-   of heap, roughly 5x the file. Scaled up, a 2 GB file would want ~10 GB
-   before it drew a single code, and the browser would refuse long before that.
-   Time is the second wall and the one people feel: even at a good measured
-   optical rate, gigabytes take most of a day. So the cap is a real limit, not
-   timidity -- and the message says what the wait would actually be at the
-   settings currently selected, rather than a vague "hours". */
-var SIZE_CAP=32*1024*1024;
+/* The ceiling, and why it moved.
+   It used to refuse anything over 32 MB flat. That was wrong -- not cautious,
+   wrong -- and a 300 MB transfer completing twice on real hardware is what
+   proved it. What is actually true, measured rather than assumed:
+
+     - The RECEIVER is the expensive side. Almost every code that arrives sits
+       in a pile of unresolved mixes until the cascade at the end, so memory
+       climbs steadily for the whole transfer. Measured on a 300 MB / 393,217
+       block decode: about 4x the file size at peak, plus one contiguous buffer
+       the size of the file when it is finally assembled. Call it ~1.2 GB for
+       300 MB.
+     - Time is linear and predictable: at a real measured 83 KB/s, 300 MB is
+       about an hour, and both screens have to stay awake for all of it.
+
+   So: a hard stop only where a browser genuinely will not follow, and an
+   informed yes/no in between rather than a refusal. The numbers in the prompt
+   are computed from the settings actually selected, not from a guess. */
+var SIZE_CAP=512*1024*1024;   /* beyond here the receiver's peak is past what browsers give a tab */
+var SIZE_WARN=64*1024*1024;   /* beyond here it is a long sit, so say so and let the user choose */
+function transferEstimate(bytes){
+  var perSec=(+$("fps").value)*gridN*gridN*(+$("bs").value);
+  var mins=bytes/perSec/60;
+  return {nominal:mins, text:mins>=90?(mins/60).toFixed(1)+" hours":Math.round(mins)+" minutes"};
+}
 function load(f){
   if(f.size>SIZE_CAP){
-    var perSec=(+$("fps").value)*gridN*gridN*(+$("bs").value);
-    var hrs=f.size/perSec/3600;
     alert("That file is "+fmt(f.size)+", and Lightwire stops at "+fmt(SIZE_CAP)+".\n\n"
-      +"At your current setting that would be about "
-      +(hrs>=1?hrs.toFixed(1)+" hours":Math.round(hrs*60)+" minutes")
-      +" of unbroken streaming, and the whole file has to sit in memory on both machines while it happens.\n\n"
-      +"Send a smaller file, or a zip of just the parts you need.");
+      +"The limit is the receiving machine, not the sending one: it holds every code it has "
+      +"caught until the very end, which costs roughly four times the file size in memory. "
+      +"Past this point a browser tab runs out before the transfer finishes.\n\n"
+      +"Send a zip of just the parts you need.");
     return;
+  }
+  if(f.size>SIZE_WARN){
+    var e=transferEstimate(f.size);
+    if(!confirm(fmt(f.size)+" is a long transfer.\n\n"
+      +"At your current setting that is at least "+e.text+" of unbroken streaming, "
+      +"and in practice longer, because the camera never catches every code shown.\n\n"
+      +"Both screens must stay awake and the camera must not move. The receiving machine "
+      +"will hold about "+fmt(f.size*4)+" in memory before it finishes.\n\n"
+      +"Send it anyway?")) return;
   }
   f.arrayBuffer().then(function(buf){
     startFile(new Uint8Array(buf),f.name,f.type||"application/octet-stream");
@@ -13846,8 +13867,9 @@ function handleFrame(txt,codeW){
   }
   if(dec.push(bytes)){
     readCount++;
-    rateWin.push(Date.now());
-    if(rateWin.length>60) rateWin.shift();
+    var nowMs=Date.now();
+    rateWin.push(nowMs);
+    while(rateWin.length&&nowMs-rateWin[0]>RATE_WINDOW_MS) rateWin.shift();
   }
   paint();
   if(dec.isDone()) finish();
@@ -14004,10 +14026,30 @@ $("rcalDismiss").onclick=function(){
   $("rcalPanel").classList.add("hidden");
 };
 
+/* Two things were wrong here, and together they let the readout report a rate
+   the sending screen cannot physically produce -- 141.5 codes/s observed in the
+   field against a hard ceiling of 135 (3x3 grid at 15 swaps per second).
+
+   1. A fixed 60-sample window. The engine returns EVERY code it finds in one
+      camera frame, so up to nine arrive sharing a timestamp. At high rates 60
+      samples covered under half a second, which is short enough that a burst
+      set the whole measurement. Now the window is a span of TIME, so a burst
+      is averaged against the quiet between frames instead of replacing it.
+   2. n samples span n-1 intervals, not n. Dividing by the wrong one inflated
+      everything by n/(n-1).
+
+   The number matters more than it looks: it is multiplied by the block size to
+   produce the KB/s figure people quote, and it is what the calibration sweep
+   ranks settings on. */
+var RATE_WINDOW_MS=3000;
+var RATE_MIN_SPAN=1.0;   /* say nothing until the window covers real time */
 function rateNow(){
   if(rateWin.length<4) return 0;
   var span=(rateWin[rateWin.length-1]-rateWin[0])/1000;
-  return span>0?rateWin.length/span:0;
+  /* Refusing to answer for the first second is deliberate. A partly-filled
+     window is exactly where a single burst of nine codes looks like a very
+     fast link, and that transient was measured at 167/s against 131 real. */
+  return span>=RATE_MIN_SPAN?(rateWin.length-1)/span:0;
 }
 function paint(){
   if(!dec) return;
@@ -14037,12 +14079,19 @@ function paint(){
    K x an overhead factor, and that factor was measured with the real codec
    (tests/overhead.js) rather than guessed:
        K=200 -> 1.45   K=1000 -> 1.09   K=5000 -> 1.06   K=16476 -> 1.03
-   Small files pay a big relative penalty, large ones converge toward 1.03.
+   and then it turns around and RISES again past ~40k blocks:
+       K=40000 -> 1.026   K=160000 -> 1.048   K=393217 -> 1.050
+   That U shape is the robust soliton distribution's tuning: the spike sits at
+   K/R with R proportional to sqrt(K), so the balance that is near-ideal in the
+   tens of thousands drifts off again in the hundreds of thousands. A table
+   that stopped at 1.03 would have pinned a 300 MB transfer at 99% for its last
+   twenty thousand codes.
    The factor is independent of how lossy the link is, because readCount only
    counts codes that arrived and were useful -- dropping 30% of frames changes
    how LONG it takes, not how many are needed. That is what makes this
    estimable at all. */
-var NEED=[[200,1.45],[500,1.20],[1000,1.09],[2500,1.08],[5000,1.06],[10000,1.04],[20000,1.03]];
+var NEED=[[200,1.45],[500,1.20],[1000,1.09],[2500,1.08],[5000,1.06],[10000,1.04],
+          [20000,1.030],[40000,1.026],[80000,1.033],[160000,1.048],[320000,1.050],[500000,1.048]];
 function codesNeeded(K){
   if(K<=NEED[0][0]) return Math.ceil(K*NEED[0][1]);
   for(var i=1;i<NEED.length;i++){

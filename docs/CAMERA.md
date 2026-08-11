@@ -30,15 +30,16 @@ Roughly, at ECC level L:
 Capacity ceiling is QR v40-L alphanumeric = 4296 characters, so 2000 B fits with
 headroom. Higher ECC levels cost modules for the same payload.
 
-## The first field run, 2026-08-10
+## Field runs on real hardware, 2026-08-10
 
-The first time any of this met a real camera. Read off the receiving screen at
-the end of a genuine transfer, not simulated:
+Everything else in this file is arithmetic. These are not.
+
+### Run 1 — 12.82 MB
 
 | | |
 |---|---|
 | File | 12.82 MB `.pptx` |
-| On the wire | 11.99 MB (gzip declined it, as expected for a compressed format) |
+| On the wire | 11.99 MB (gzip declined it, correct for an already-compressed format) |
 | Blocks | 15,718 at 800 B |
 | Codes read | 16,176 — **1.029x overhead** |
 | Decode rate | 77.5 codes/s |
@@ -47,24 +48,80 @@ the end of a genuine transfer, not simulated:
 | px / module | 3.3 — "adequate" |
 | Result | Complete, checksum verified |
 
-Three things this settles:
+### Runs 2 and 3 — 300 MB, twice
 
-1. **The WASM engine works on real hardware.** That was the first line of the
-   manual checklist and the one that would have invalidated grid mode entirely.
-2. **60.6 KB/s is real optical throughput**, not a nominal figure. Every KB/s
-   number published before this was arithmetic.
-3. **1.029x overhead at K=15,718 matches `tests/overhead.js`** (1.030x at
-   K=16,476) and contradicts the old "approaching 1.13x" claim, which has been
-   corrected in `ARCHITECTURE.md`.
+Same operator, same hardware, with the input cap manually raised. Read off the
+receiving screen mid-transfer:
 
-Worth noting it held 77.5 codes/s at only **3.3 px per module** — barely above
-the 3.0 floor where decoding is expected to fall apart. The forecasts in this
-file assumed that thin a margin would cost real throughput. It did not.
+| | |
+|---|---|
+| File | 300.00 MB |
+| Blocks | **393,217** at 800 B |
+| Setting | **3x3 grid, 15 swaps/s, 800 B per code** |
+| Decode rate | 81.9 codes/s, rising to **107.0 codes/s** after the operator adjusted focus by hand |
+| **Measured throughput** | 63.9 KB/s, rising to **83.6 KB/s** after that adjustment |
+| px / module | 3.2 — "adequate" |
+| Engine | ZXing (bundled) |
+| Result | Completed. Twice. |
 
-**Still unknown, so not claimed:** the camera model, the operating system, and
-which grid and swap rate were in use. Only the block size (800 B) is inferable.
-A calibration sweep on the same hardware would fill those in, and would be the
-first ranked optical table this project has.
+### What these settle
+
+1. **The WASM engine works on real hardware.** First item on the manual
+   checklist, and the one that would have made grid mode worthless.
+2. **The throughput figures are real**, not nominal. Every KB/s published
+   before this was arithmetic.
+3. **3x3 is not aspirational after all.** This file used to say the 3x3 preset
+   was "marginal even at perfect frame fill" and "below threshold" on a 1080p
+   sensor. It was then measured running 3x3 at 800 B for an hour at 3.2
+   px/module. The forecast was wrong because it was computed at 1400 B (125
+   modules); at 800 B a cell is only 97 modules, and that difference is exactly
+   the "prefer smaller codes over fewer codes" rule further down this page.
+   The rule was right; the summary line contradicting it was not.
+4. **3.2 px/module is enough.** Both runs sat barely above the 3.0 floor and
+   still held their rate. The margin above 3.0 is worth less than this file
+   previously implied.
+5. **Manual focus is worth doing.** The operator's own note: *"I had to adjust
+   the focus manually to get best results."* It moved the same transfer from
+   63.9 to 83.6 KB/s — a **31% gain** from one adjustment, more than most
+   setting changes achieve. Autofocus hunting on a static screen is the single
+   biggest recoverable loss.
+6. **300 MB is fine.** The shipped cap was 32 MB, and that was wrong rather
+   than cautious. It is now 512 MB hard, with a warning above 64 MB.
+   See `DECISIONS.md` §18.
+
+### A measurement bug the 300 MB run exposed
+
+Mid-run the receiver reported **141.5 codes/s**. That figure is impossible:
+3x3 at 15 swaps per second is a hard ceiling of **135** distinct codes per
+second, because that is all the sending screen can draw. Two faults, now fixed:
+
+- **The rate window was 60 samples, not a span of time.** The engine returns
+  every code it finds in one camera frame, so up to nine arrive sharing a
+  timestamp. At high rates 60 samples covered under half a second — short
+  enough that one burst set the whole reading. The window is now three seconds
+  of wall clock, and reports nothing until it has a full second to work with.
+- **n samples span n-1 intervals.** Dividing by n inflated everything slightly.
+
+This matters beyond cosmetics: the rate is multiplied by the block size to give
+the **KB/s** figure people quote, and it is the number the calibration sweep
+ranks settings on. **Treat any KB/s reading taken before this fix as up to
+~5% optimistic**, including the 60.6 and 83.6 figures above.
+
+### The gap between nominal and measured
+
+3x3 x 15 swaps/s x 800 B is **105.5 KB/s nominal**. Measured was 83.6 KB/s,
+and the decode rate was 107 codes/s against 135 offered. Both come to **79%**.
+So roughly one code in five is never read — and it costs nothing, which is the
+whole point of the fountain coding. Treat nominal as about a quarter optimistic
+on a good link, rather than as a target.
+
+**Nominal is also a genuine ceiling, and worth using as a sanity check.** No
+sustained decode rate can exceed `grid x grid x swaps per second`, because the
+sender cannot produce more distinct codes than that. A reading above it means
+the measurement is wrong, not that the link is fast — which is exactly how the
+bug above was caught.
+
+**Still unrecorded:** camera model and operating system.
 
 ---
 
@@ -80,9 +137,12 @@ reconciled against it. Assuming the grid fills the camera frame:
 | 2×2 · 1400 B | 125 | ~510 px | ~4.1 | comfortable |
 | 3×3 · 1400 B | 125 | ~335 px | ~2.7 | below threshold |
 
-**Practical conclusion for the C920: 2×2 at 1200–1400 B is the sweet spot**
-(~60–84 KB/s nominal). Ludicrous 3×3 is marginal even at perfect frame fill —
-the sensor runs out of pixels, and no amount of tuning changes that.
+~~**Practical conclusion for the C920: 2×2 at 1200–1400 B is the sweet spot.**
+Ludicrous 3×3 is marginal even at perfect frame fill.~~ **Superseded by the
+field runs above:** 3×3 at *800 B* was measured working for an hour. The
+forecast only ever evaluated 3×3 at 1400 B, which is the dense end of a lever
+this same page tells you to back off first. Do not repeat that mistake when
+extending the table — vary bytes-per-code as well as grid.
 
 A 720p laptop camera has two-thirds the pixel budget: 2×2 at 1000 B lands around
 3.1, right on the edge. Many laptop cameras are also fixed-focus beyond ~40 cm,

@@ -86,26 +86,90 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   await page.close();
 }
 
-/* ---- 3. an over-cap file is refused, and says why ---- */
+/* ---- 3. the decode rate cannot exceed what the sender can produce ----
+   Field readout showed 141.5 codes/s against a hard ceiling of 135. Codes are
+   fed here in bursts of nine sharing a timestamp, exactly as a grid frame
+   arrives, at a known true rate -- the reported figure must not run away. */
 {
   const page = await browser.newPage();
-  let msg = null;
-  page.on("dialog", async (d) => { msg = d.message(); await d.dismiss(); });
   await page.goto(URL);
-  const res = await page.evaluate(async () => {
-    const f = new File([new Uint8Array(40 * 1024 * 1024)], "huge.bin", { type: "application/octet-stream" });
+  await page.evaluate(() => document.getElementById("tabRecv").click());
+  const r = await page.evaluate(async () => {
+    const payload = new Uint8Array(2 * 1024 * 1024);
+    const enc = LW.makeEncoder(payload, 800, 0x7e57face, 0);
+    let seed = 1;
+    const CELLS = 9, SWAPS = 15;          // 135 codes/s, the real ceiling
+    const t0 = Date.now();
+    const seen = [];
+    while (Date.now() - t0 < 5000) {
+      for (let c = 0; c < CELLS; c++) window.__feed(LW.base45Encode(enc.frame(seed++)), 495);
+      await new Promise((r) => setTimeout(r, 1000 / SWAPS));
+      const shown = document.getElementById("rFps").textContent;
+      if (shown !== "—") seen.push(parseFloat(shown));
+    }
+    const fed = seed - 1;
+    return { fed, trueRate: fed / ((Date.now() - t0) / 1000), max: Math.max(...seen),
+             last: seen[seen.length - 1], samples: seen.length };
+  });
+  /* the feed loop cannot hit a full 135/s because setTimeout has its own floor,
+     so compare the reading against what was actually fed */
+  ok("reported rate never exceeds what was actually fed",
+     r.max <= r.trueRate * 1.12,
+     `peak reported ${r.max.toFixed(1)}/s vs ${r.trueRate.toFixed(1)}/s truly fed`);
+  ok("reported rate is not a wild underestimate either",
+     r.last >= r.trueRate * 0.85,
+     `last reported ${r.last.toFixed(1)}/s vs ${r.trueRate.toFixed(1)}/s truly fed`);
+  await page.close();
+}
+
+/* ---- 3. the size ladder: allowed / warned / refused ----
+   A 300 MB transfer has completed twice on real hardware, so a flat refusal at
+   32 MB was wrong. What is asserted now is the shape: quiet below the warn
+   line, an informed choice above it, a hard stop only where a browser really
+   will not follow. */
+async function drop(sizeBytes, answer) {
+  const page = await browser.newPage();
+  let msg = null, kind = null;
+  page.on("dialog", async (d) => {
+    msg = d.message(); kind = d.type();
+    if (d.type() === "confirm" && answer === "accept") await d.accept(); else await d.dismiss();
+  });
+  await page.goto(URL);
+  const res = await page.evaluate(async (n) => {
+    const f = new File([new Uint8Array(n)], "big.bin", { type: "application/octet-stream" });
     const dt = new DataTransfer(); dt.items.add(f);
     document.getElementById("drop").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
-    await new Promise((r) => setTimeout(r, 400));
-    return { streaming: !document.getElementById("sendPanel").classList.contains("hidden"),
-             capRejects2GB: 2 * 1024 * 1024 * 1024 > 32 * 1024 * 1024 };
-  });
-  ok("over-cap file does not start streaming", res.streaming === false);
-  ok("2 GB is over the cap by the same test", res.capRejects2GB);
-  ok("the refusal states the size and the ceiling", !!msg && /40\.00 MB/.test(msg) && /32\.00 MB/.test(msg), msg && msg.split("\n")[0]);
-  ok("the refusal estimates the real wait", !!msg && /(hours|minutes)/.test(msg));
-  ok("the refusal explains the memory cost", !!msg && /memory/.test(msg));
+    /* an 80 MB file is a real amount of work to slice up before the first code
+       appears, so poll rather than guess at a fixed wait */
+    for (let i = 0; i < 200; i++) {
+      if (!document.getElementById("sendPanel").classList.contains("hidden")) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return { streaming: !document.getElementById("sendPanel").classList.contains("hidden") };
+  }, sizeBytes);
   await page.close();
+  return { ...res, msg, kind };
+}
+
+{
+  const small = await drop(8 * 1024 * 1024);
+  ok("a small file is sent with no interruption", small.streaming === true && small.msg === null,
+     small.msg || "no dialog");
+
+  const warned = await drop(80 * 1024 * 1024, "dismiss");
+  ok("a long transfer asks first", warned.kind === "confirm", warned.kind || "no dialog");
+  ok("declining it does not start the transfer", warned.streaming === false);
+  ok("the question states the wait", !!warned.msg && /(hours|minutes)/.test(warned.msg));
+  ok("the question states the memory the receiver will hold",
+     !!warned.msg && /memory/.test(warned.msg) && /320\.00 MB/.test(warned.msg));
+
+  const accepted = await drop(80 * 1024 * 1024, "accept");
+  ok("accepting it does start the transfer", accepted.streaming === true);
+
+  const refused = await drop(600 * 1024 * 1024, "accept");
+  ok("past the hard ceiling it is refused outright", refused.kind === "alert" && refused.streaming === false);
+  ok("the refusal names the ceiling", !!refused.msg && /512\.00 MB/.test(refused.msg),
+     refused.msg && refused.msg.split("\n")[0]);
 }
 
 await browser.close(); server.close();

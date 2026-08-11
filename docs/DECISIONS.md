@@ -281,23 +281,52 @@ The word "Estimated" is on the label because it is one. If the codec or the
 soliton parameters change, re-run `tests/overhead.js` and update the table in
 `template.html`.
 
-## 18. The 32 MB ceiling, and what a 2 GB file would actually do
+## 18. The size ceiling: 32 MB was wrong, 512 MB with a warning is the fix
 
-It is refused, with a message that now states the size, the ceiling, and what
-the wait would have been at the settings currently selected.
+The original build refused anything over 32 MB. That number was never measured
+— it was a guess with a plausible-sounding justification ("larger files take
+hours optically"). Two things demolished it on the same day:
 
-The ceiling is not timidity. Measured at the cap: a 32 MB file settles at about
-**140 MB of browser heap**, roughly 5x the file, because the payload is held
-whole *and* a full copy is handed to each render worker. Linear scaling puts a
-2 GB file near 10 GB before a single code is drawn, which no browser will do --
-and 2 GB exceeds the ArrayBuffer ceiling in several engines regardless.
+- **A 300 MB file transferred successfully, twice**, on real hardware, at
+  393,217 blocks. The owner raised the cap by hand to do it, which is exactly
+  what a wrong limit invites.
+- **At the settings actually in use it took about an hour**, not "hours".
 
-Time is the wall people actually feel. At the 60.6 KB/s measured in the field,
-2 GB is roughly **9.6 hours** of unbroken streaming with both screens awake.
+So the ceiling is now evidence-shaped rather than a single flat refusal:
 
-If the cap is ever raised, the memory multiplier is the thing to fix first:
-give the workers a shared view of the payload rather than a copy each, and the
-5x drops to something near 2x. Nobody has needed it yet.
+| Size | Behaviour |
+|---|---|
+| under 64 MB | sent, no interruption |
+| 64 MB to 512 MB | a confirm box stating the wait at the settings selected, and the memory the receiver will hold. Proceed or cancel. |
+| over 512 MB | refused, with the reason |
+
+**Where the 512 MB comes from.** The receiver is the expensive side, and the
+reason is the same avalanche that makes progress unmeasurable (§17): almost
+every code that arrives sits in a pile of unresolved mixes until the very end,
+so memory climbs for the whole transfer and peaks just before completion.
+Measured on a 300 MB / 393,217-block decode, tracked to 68% of the way through
+and extrapolated: **roughly 4x the file size**, plus one contiguous buffer the
+size of the file when it is finally assembled. About 1.2 GB for 300 MB. At
+512 MB that is around 2 GB, which is where a browser tab stops being reliable.
+
+**A 2 GB file** would want roughly 8 GB before it drew a code, exceeds the
+largest single buffer several engines will allocate, and at a real measured
+83 KB/s is about 7 hours of unbroken streaming with both screens awake. It is
+refused, and the message says why.
+
+**If the ceiling ever needs to move again, fix the multiplier first.** The
+sender hands each render worker its own full copy of the payload; sharing one
+would take the sending side from ~5x down to ~2x. On the receiving side the
+pending pile is intrinsic to LT decoding and cannot be avoided without changing
+the code — that is the real wall.
+
+**One thing that was checked and is NOT a problem:** the cascade in `solve()`
+is recursive, and at 393,217 blocks a deep enough chain would blow the call
+stack — a failure that would land after an hour of transfer, at 99%. Tested
+directly at K = 16,000 / 50,000 / 120,000 / 250,000 / 393,217: every one
+completed. The ripple resolves in many short chains rather than one long one.
+Do not "fix" it into an explicit queue without re-testing; there is no bug here
+to fix.
 
 ---
 

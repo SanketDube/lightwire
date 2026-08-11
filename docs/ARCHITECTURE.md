@@ -34,8 +34,17 @@ Consequences, and they are the whole design:
   | 1,000 | 1,087 | 1.09× |
   | 5,000 | 5,284 | 1.06× |
   | 16,476 | 16,974 | **1.03×** |
+  | 40,000 | 41,026 | 1.026× |
+  | 160,000 | 167,648 | 1.048× |
+  | 393,217 | 412,776 | 1.050× |
 
-  Small files pay a large relative penalty; large ones converge toward 1.03×.
+  The curve is **U-shaped**, which is worth knowing before extrapolating from
+  either end: overhead falls to a minimum near 40,000 blocks and then rises
+  again. That is the robust soliton distribution's tuning — its spike sits at
+  `K/R` with `R` proportional to `√K`, so a balance that is near-ideal in the
+  tens of thousands drifts off in the hundreds of thousands. A 300 MB field run
+  at K=393,217 needs 1.05×, not the 1.03× a naive reading of the small-K trend
+  would predict.
   The 1.13–1.5× range in `tests/test.js` is real but was measured at small K.
   A field run of a 12.57 MB file came back at 1.029×, which matches the table
   rather than contradicting it.
