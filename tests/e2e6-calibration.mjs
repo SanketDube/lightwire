@@ -50,6 +50,18 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   await page.evaluate(() => window.__calTiming(400, 100, 300));
 
   await page.click("#testSig");
+  /* aiming first: the sweep must NOT start on its own */
+  await page.waitForTimeout(600);
+  const aim = await page.evaluate(() => ({
+    aiming: window.__calAim(), rung: window.__calRung(),
+    head: document.getElementById("calHead").textContent,
+    startShown: !document.getElementById("calStart").classList.contains("hidden"),
+    grid: document.getElementById("grid").value, bs: document.getElementById("bs").value
+  }));
+  ok("aiming phase holds before the sweep", aim.aiming === true && aim.head === "Aim the camera", JSON.stringify(aim));
+  ok("aiming streams a fixed 2x2 900 B pattern", aim.grid === "2" && aim.bs === "900");
+  ok("the sweep waits for a press", aim.startShown === true);
+  await page.click("#calStart");
   const seen = new Set();
   const t0 = Date.now();
   while (Date.now() - t0 < 6000) {
@@ -61,6 +73,8 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
   const ladder = await page.evaluate(() => window.__calLadder.length);
   ok("sweep visited every rung", seen.size === ladder, `saw ${seen.size} of ${ladder}`);
+  ok("the ladder covers all three grids", await page.evaluate(() =>
+    new Set(window.__calLadder.map((r) => r.g)).size === 3));
 
   const state = await page.evaluate(() => ({
     rung: window.__calRung(),
@@ -86,7 +100,13 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   ok("rung nibble helpers available in page", flagCheck);
 
   /* applying a row must set the three knobs and clear the sweep */
-  await page.evaluate(() => window.__takeRec("C" + "04" + "2" + "04B0" + "0E")); // rung 4, 2x2, 1200 B, 14/s
+  const want = await page.evaluate(() => {
+    const RUNG = 4, r = window.__calLadder[RUNG - 1], fps = 14;
+    const hex2 = (n) => ("00" + n.toString(16).toUpperCase()).slice(-2);
+    const hex4 = (n) => ("0000" + n.toString(16).toUpperCase()).slice(-4);
+    window.__takeRec("C" + hex2(RUNG) + (r.g & 15).toString(16).toUpperCase() + hex4(r.b) + hex2(fps));
+    return { g: r.g, b: r.b, fps };
+  });
   await page.click("#calTable tr.win button");
   const applied = await page.evaluate(() => ({
     grid: document.getElementById("grid").value,
@@ -96,9 +116,9 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     pickBack: !document.getElementById("pickPanel").classList.contains("hidden")
   }));
   ok("recommendation applied to the knobs",
-     applied.grid === "2" && applied.bs === "1200" && applied.fps === "14",
-     JSON.stringify(applied));
-  ok("back at the file picker with a note", applied.pickBack && /1200 B/.test(applied.note));
+     applied.grid === String(want.g) && applied.bs === String(want.b) && applied.fps === String(want.fps),
+     JSON.stringify(applied) + " wanted " + JSON.stringify(want));
+  ok("back at the file picker with a note", applied.pickBack && applied.note.indexOf(want.b + " B") >= 0);
 
   ok("no page errors during the sweep", errors.length === 0, errors.join(" | "));
   await page.close();
@@ -117,11 +137,11 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
   /* Three rungs at different simulated qualities. Rung 4 is built to win:
      fewer codes per second than rung 3, but each one carries 1200 B. */
-  const plan = [
-    { rung: 2, bs: 1400, rate: 12, width: 1000 },
-    { rung: 3, bs: 800,  rate: 40, width: 500 },
-    { rung: 4, bs: 1200, rate: 36, width: 500 }
-  ];
+  const plan = await page.evaluate(() => [
+    { rung: 2, bs: window.__calLadder[1].b, rate: 12, width: 1000 },
+    { rung: 3, bs: window.__calLadder[2].b, rate: 40, width: 500 },
+    { rung: 4, bs: window.__calLadder[3].b, rate: 36, width: 500 }
+  ]);
 
   for (const p of plan) {
     await page.evaluate(async (p) => {
@@ -154,9 +174,10 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   ok("duplicate codes are not counted as throughput",
      Object.values(beforeFinish).every((r) => r.seeds >= r.n),
      JSON.stringify(beforeFinish));
+  const mods4 = await page.evaluate(() => window.__rcal().runs[4].modules);
   ok("px/module tracked from code width",
-     Math.abs(beforeFinish[4].ppm - 500 / 117) < 0.6,
-     "rung4 ppm=" + beforeFinish[4].ppm.toFixed(2));
+     Math.abs(beforeFinish[4].ppm - 500 / mods4) < 0.6,
+     `rung4 ppm=${beforeFinish[4].ppm.toFixed(2)} over ${mods4} modules`);
 
   await page.evaluate(() => window.__calFinish());
   const res = await page.evaluate(() => ({
@@ -173,17 +194,19 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   ok("calibration panel took over from the transfer panel", res.panelShown && res.progHidden);
   ok("finished", res.head === "Calibration done");
   ok("highest goodput wins, not the highest code rate",
-     res.rec && res.rec.rung === 4 && res.rec.b === 1200 && res.rec.g === 2,
+     res.rec && res.rec.rung === 4 && res.rec.b === plan[2].bs && res.rec.g === 2,
      JSON.stringify(res.rec));
-  ok("winning row highlighted", /1200 B/.test(res.winRow), res.winRow.trim());
+  ok("winning row highlighted", res.winRow.indexOf(plan[2].bs + " B") >= 0, res.winRow.trim());
   ok("recommends a swaps-per-second figure", res.rec.fps >= 2 && res.rec.fps <= 30, "fps=" + res.rec.fps);
   ok("verdict is shown and names the setting",
-     res.verdictShown && /2×2 · 1200 B/.test(res.verdict), res.verdict.slice(0, 160));
+     res.verdictShown && res.verdict.indexOf("2×2 · " + plan[2].bs + " B") >= 0, res.verdict.slice(0, 160));
   ok("verdict reports a measured KB/s", /KB\/s/.test(res.verdict));
   ok("prediction is labelled as a prediction",
      /Predicted, not measured/.test(res.verdict), res.verdict.slice(-180));
-  ok("says how many settings it actually saw", /3 of 6 settings measured/.test(
-     await page.evaluate(() => document.getElementById("rcalNow").textContent)));
+  const ladderN = await page.evaluate(() => window.__calLadder.length);
+  ok("says how many settings it actually saw",
+     (await page.evaluate(() => document.getElementById("rcalNow").textContent))
+       .indexOf(`3 of ${ladderN} settings measured`) >= 0);
   ok("ACK for the sender is drawn", res.ackShown);
 
   /* the ACK the receiver draws must be the one the sender can read back */
@@ -197,16 +220,16 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     return { field, back: window.__calRec() };
   });
   ok("receiver's ACK field parses on the sender",
-     roundTrip.back && roundTrip.back.rung === 4 && roundTrip.back.b === 1200,
+     roundTrip.back && roundTrip.back.rung === 4,
      roundTrip.field + " -> " + JSON.stringify(roundTrip.back));
 
   /* a field whose ladder does not match must be refused, not guessed at */
   const mismatch = await page.evaluate(() => {
-    window.__takeRec("C" + "01" + "3" + "07D0" + "0A");   // rung 1 claiming 3x3 / 2000 B
+    window.__takeRec("C" + "01" + "3" + "07D0" + "0A");   // rung 1 claiming 3x3 / 2000 B, which the ladder denies
     return window.__calRec();
   });
   ok("a disagreeing ladder is ignored rather than guessed",
-     mismatch && mismatch.rung === 4, JSON.stringify(mismatch));
+     mismatch && mismatch.rung === 4 && mismatch.g === 2, JSON.stringify(mismatch));
 
   ok("no page errors while scoring", errors.length === 0, errors.join(" | "));
   await page.close();

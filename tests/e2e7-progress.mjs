@@ -86,6 +86,38 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   await page.close();
 }
 
+/* ---- the file saves itself once it is complete ----
+   After an hour of streaming, needing one more click to keep the file is a way
+   to lose it. The button stays as a fallback because a browser may refuse a
+   download it did not see a click for. */
+{
+  const page = await browser.newPage({ acceptDownloads: true });
+  await page.goto(URL);
+  await page.evaluate(() => document.getElementById("tabRecv").click());
+  const dl = page.waitForEvent("download", { timeout: 15000 }).catch(() => null);
+  await page.evaluate(async () => {
+    const file = new TextEncoder().encode("ledger,rows\n" + "x".repeat(40000));
+    const container = LW.buildContainer("ledger.csv", "text/csv", file);
+    const enc = LW.makeEncoder(container, 600, 0x5a7e1234, 0);
+    for (let seed = 1; seed < 900; seed++) {
+      window.__feed(LW.base45Encode(enc.frame(seed)), 600);
+      const d = window.__dec();
+      if (d && d.isDone()) break;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  });
+  const got = await dl;
+  ok("a completed file downloads without being asked", !!got,
+     got ? "suggested name: " + got.suggestedFilename() : "no download fired");
+  if (got) ok("it keeps the sender's filename", got.suggestedFilename() === "ledger.csv", got.suggestedFilename());
+  const btn = await page.evaluate(() => ({
+    text: document.getElementById("save").textContent,
+    visible: !document.getElementById("save").classList.contains("hidden")
+  }));
+  ok("the manual button stays as a fallback", btn.visible === true && btn.text === "Save again", JSON.stringify(btn));
+  await page.close();
+}
+
 /* ---- 3. the decode rate cannot exceed what the sender can produce ----
    Field readout showed 141.5 codes/s against a hard ceiling of 135. Codes are
    fed here in bursts of nine sharing a timestamp, exactly as a grid frame

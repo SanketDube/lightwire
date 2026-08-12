@@ -86,7 +86,7 @@ hooks = (
     'window.__rcal=function(){return {runs:calRuns,rec:rcalRec,seen:calSeen}};'
     'window.__calFinish=finishCal;window.__calLadder=CAL_LADDER;'
     'window.__calTiming=function(ms,settle,quiet){CAL_MS=ms;CAL_SETTLE=settle;CAL_QUIET=quiet};'
-    'window.__calFps=function(){return CAL_FPS};'
+    'window.__calFps=function(){return CAL_FPS};window.__calAim=function(){return calAiming};''window.__aim=function(){return aimSt};window.__calHeld=function(){return calHeld};'
     'window.__takeRec=takeRecommendation;\nsetRole("send");'
 )
 with open(os.path.join(HERE, "test-copy.html"), "w") as f:

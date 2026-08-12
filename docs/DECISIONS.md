@@ -368,6 +368,67 @@ completed. The ripple resolves in many short chains rather than one long one.
 Do not "fix" it into an explicit queue without re-testing; there is no bug here
 to fix.
 
+## 19. Decoder options: stop searching for things that cannot be there
+
+Lightwire does **no** image processing of its own. The video frame is drawn to
+a canvas and the raw RGBA handed to ZXing, which does its own greyscale
+conversion and thresholding. That threshold is *local average* by default — it
+decides light-vs-dark per region rather than once per frame, which is why glare
+on one corner does not kill the whole grid. `GlobalHistogram` was tried on the
+same image and decoded **0 of 9**. Do not change the binarizer.
+
+What was wasteful was the *searching*. Measured on a blurred, noised 3x3 grid
+of 900 B codes at 1920x1080:
+
+| Options | Decode time | Found |
+|---|---|---|
+| as shipped (`tryHarder` only) | 63.6 ms | 9/9 |
+| `tryRotate:false` | 58.8 ms | 9/9 |
+| `tryDownscale:false` | 56.3 ms | 9/9 |
+| **both off** | **48.2 ms** | **9/9** |
+| plus `tryInvert:false` | 43.9 ms | 9/9 here, **0/9 on an inverted screen** |
+| `tryHarder:false` | 56.4 ms | **8/9** — a code lost |
+
+Adopted: `tryRotate:false, tryDownscale:false`. **24% off decode time**, taking
+the ceiling from ~142 to ~187 codes/s, with no loss in any case tested —
+including a frame rotated 90 degrees, because QR finder patterns are already
+rotation-invariant, and a single large code filling the frame.
+
+**`tryInvert` stays on deliberately.** It was the single biggest saving and it
+is the one that is not safe: a forced dark mode on the sending machine inverts
+the codes, and without the inversion search every code is lost. A 7% gain is
+not worth a class of setup that silently transfers nothing.
+
+Decode time caps codes/s, which caps throughput. This is the highest-leverage
+knob in the file, and it should be re-measured whenever the engine is updated.
+
+## 20. Calibrate in two phases: aim first, then sweep
+
+The first sweep started measuring the instant the button was pressed. That is
+the wrong order, and the field runs proved it: the operator's own report was
+that *"camera angle focus etc matters a lot"*, and one manual focus adjustment
+was worth **31%** on the same transfer — more than any setting change achieved.
+A sweep that begins before the camera is aimed measures the aiming, not the
+settings.
+
+So there are now two phases:
+
+1. **Aim.** A single fixed pattern (2x2 at 900 B) streams with **no clock
+   running**. The receiving screen shows px/module live, plus the best value
+   seen so far, so the operator can move the camera, change the angle and pin
+   the focus while watching the number respond. The sweep starts only when
+   they press the button. The aiming pattern carries rung number 15 and is
+   never scored — it would otherwise put a row in the table nobody chose.
+2. **Sweep.** Eight rungs rather than six, at **12 seconds** each rather than
+   6.5, with **Hold** and **Next** controls so any rung can be extended
+   indefinitely while the operator keeps adjusting. The ladder now covers three
+   block sizes at 2x2 and three at 3x3, because the field runs landed on 900 B
+   — a value the original six-rung ladder never tested.
+
+The cost is time: about 100 seconds of sweep instead of 40, plus however long
+aiming takes. That is the right trade for a measurement whose whole purpose is
+to be trusted afterwards, and the operator controls both.
+
 ---
 
 ## Explicitly deferred

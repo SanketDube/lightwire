@@ -64,6 +64,29 @@ receiving screen mid-transfer:
 | Engine | ZXing (bundled) |
 | Result | Completed. Twice. |
 
+### Runs 4, 5 and 6 — three completions, on v3.2.0
+
+| | Run 4 | Run 5 | Run 6 |
+|---|---|---|---|
+| File | 300.00 MB | 17.08 MB | 300.00 MB |
+| Blocks | 393,217 @ 800 B | 19,899 @ 900 B | 349,526 @ 900 B |
+| Codes read | 409,304 | 20,377 | 362,893 |
+| **Overhead** | 1.041x | 1.024x | 1.038x |
+| Decode rate at the end | 27.4/s | 81.1/s | **102.4/s** |
+| **Measured** | 21.4 KB/s | 71.3 KB/s | **90.0 KB/s** |
+| px / module | 3.2 | 3.0 | 3.0 |
+| Result | complete | complete | complete |
+
+Run 6 is the best measured throughput this tool has produced: **90.0 KB/s at
+900 B per code**, above the 800 B used in every earlier run. Run 4 is the one
+that hit the drawing bug described below, which is why its end-of-run rate
+reads 21 KB/s against the same setup managing 90.
+
+The measured overheads (1.024x to 1.041x) sit slightly under the synthetic
+figures in `ARCHITECTURE.md` — the progress estimate is therefore a touch
+conservative, which is the safe direction for a bar that must never claim to be
+finished early.
+
 ### What these settle
 
 1. **The WASM engine works on real hardware.** First item on the manual
@@ -133,6 +156,36 @@ sender cannot produce more distinct codes than that. A reading above it means
 the measurement is wrong, not that the link is fast — which is exactly how the
 bug above was caught.
 
+### The decoder was doing work it did not need to
+
+The operator asked whether the tool converts to grayscale or adjusts contrast.
+It does neither: the video frame is drawn to a canvas and handed to ZXing as
+raw RGBA. **ZXing does the greyscale conversion and the thresholding itself**,
+and by default it uses a *local average* threshold — it decides light-vs-dark
+per region rather than once for the whole frame. That is why glare on one
+corner does not destroy the whole grid. Swapping it for a global threshold was
+tried and decoded **0 of 9** codes on the same image.
+
+What it *was* doing needlessly: searching for rotated codes and for downscaled
+ones. Measured on a blurred, noised 3x3 grid of 900 B codes at 1920x1080:
+
+| Options | Decode time | Codes found |
+|---|---|---|
+| as shipped | 63.6 ms | 9/9 |
+| no rotate search | 58.8 ms | 9/9 |
+| no downscale search | 56.3 ms | 9/9 |
+| **no rotate + no downscale** | **48.2 ms** | **9/9** |
+| also no inversion search | 43.9 ms | 9/9 — **but 0/9 on an inverted screen** |
+
+The first three switches cost nothing, because QR finder patterns are already
+rotation-invariant and the codes always fill a known fraction of the frame.
+**24% off the decode time**, which raises the ceiling from ~142 to ~187
+codes/s. The inversion search is kept: a forced dark mode on the sending
+machine would invert the codes, and without it every code is lost.
+
+Adopted in v3.3.0. Decode time is the thing that caps codes/s, which caps
+throughput, so this is the most valuable single knob in the file.
+
 **Still unrecorded:** camera model and operating system.
 
 ---
@@ -167,17 +220,23 @@ is still the right mental model, and because it is what you fall back on if you
 want to tune a setting the ladder does not contain.
 
 1. Receiver: start the camera and point it at the sending screen.
-2. Sender: click **Send test signal**.
-3. Fill the frame with the codes and hold steady. Lock focus if the camera
-   offers it. The sweep takes about 40 seconds.
-4. Read the verdict on the **receiving** screen. It names a row number, a grid,
+2. Sender: click **Send test signal**. It shows a steady pattern and **waits**.
+3. **Aim.** No clock is running. Fill the frame, square on, and adjust angle,
+   distance and focus while watching **px/module** on the receiving screen. It
+   also shows the best value you have reached, so you can tell whether your
+   last move helped. Take as long as you like — this is the part that pays.
+4. Sender: press **Start sweep**.
+5. Each of eight settings runs for 12 seconds. Press **Hold this one** to stop
+   the clock on any of them and keep adjusting; **Next setting** to move on.
+6. Read the verdict on the **receiving** screen. It names a row number, a grid,
    a bytes-per-code and a swaps-per-second.
-5. Sender: click **Apply** on that row.
+7. Sender: click **Apply** on that row.
 
-The sweep drives six settings — 1×1 at 600 and 1400 B, 2×2 at 800 and 1200 B,
-3×3 at 800 and 1200 B — each for 6.5 seconds at 20 swaps per second, and ranks
-them by the bytes per second the camera actually recovered. Missing codes
-during a sweep costs nothing, exactly as it does during a real transfer.
+The ladder is 1×1 at 600 and 1400 B, 2×2 at 800, 1100 and 1400 B, and 3×3 at
+700, 900 and 1100 B, all at 20 swaps per second — faster than any preset, so
+that the *camera* is the bottleneck being measured rather than the ladder.
+Ranking is by the bytes per second actually recovered. Missing codes during a
+sweep costs nothing, exactly as during a real transfer.
 
 Two readings worth understanding:
 

@@ -11,7 +11,8 @@ Captured from headless test runs (no real camera involved).
 | `shot4-grid.png` | Sender: 2×2 grid mode. |
 | `shot4-ludicrous.png` | Sender: 3×3 Ludicrous preset, worker pipeline running. |
 | `shot5-diag.png` | Receiver: engine, px/module and optics verdict readouts. |
-| `shot6-calibrating.png` | Sender: mid-sweep on setting 3 of 6, showing the codes it is actually managing to paint. |
+| `shot6-aiming.png` | Sender: the aiming phase. A steady 2×2 pattern, no clock running, waiting for **Start sweep** — added because camera angle and focus were measured to matter more than any setting. |
+| `shot6-calibrating.png` | Sender: mid-sweep, showing the codes it is actually managing to paint, with Hold and Next available on every setting. |
 | `shot6-cal-results.png` | Sender: the ladder with per-setting paint rates, two settings flagged sender-limited, and the receiver's verdict arrived over the ACK channel. |
 | `shot6-recv-verdict.png` | Receiver: all six settings scored, the winner picked on measured KB/s rather than code rate, and the prediction marked as a prediction. |
 | `shot7-bigfile.png` | Receiver on a 12.57 MB transfer (16,476 blocks) in an 800 px window: the whole screen fits, and the estimate reads 44% while only 33 blocks are actually solved — the reason the block grid was replaced. |

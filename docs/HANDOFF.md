@@ -21,14 +21,20 @@ and the headless test suite passes. Three build generations happened:
    by an estimated progress bar, ACK code moved above anything that grows with
    the file, and the input ceiling raised from a guessed 32 MB to a measured
    512 MB with a warning above 64 MB. `DECISIONS.md` §17 and §18.
+6. **v3.3 (2026-08-10)** — six more field runs, including 300 MB three times
+   and a best of **90.0 KB/s**. Decoder options tuned on measurement (24% off
+   decode time), two-phase calibration (aim, then sweep, with Hold and Next),
+   auto-save on completion, and the px/module verdict made to agree with the
+   number printed beside it. `DECISIONS.md` §19 and §20.
 
-`dist/lightwire.html` is the current build. **One real-camera transfer has now
-happened** — 12.82 MB at 60.6 KB/s, engine confirmed as the bundled ZXing, full
-figures in `CAMERA.md`. Everything else optical is still a forecast from first
-principles and is marked as such, including the whole of `CAMERA.md`'s C920
-table. **The calibration sweep has never run on real hardware:** its scoring,
-ranking and recommendation are tested only against a simulated link, so the
-machinery is proven and no ranked optical table exists yet.
+`dist/lightwire.html` is the current build. **Six real-camera transfers have
+now happened**, up to 300 MB and a best of 90.0 KB/s — full figures in
+`CAMERA.md`. The per-camera *forecast tables* in that file are still forecasts
+and one has already been retracted as too pessimistic. **The calibration sweep
+has still never run on real hardware:** its scoring and recommendation are
+tested only against a simulated link, so the machinery is proven and no ranked
+optical table exists yet. That remains the single most valuable missing
+measurement.
 
 Published 2026-08-10. See `PUBLISHING.md` for what that closed and what it did
 not.
@@ -52,9 +58,11 @@ not.
 
 ## Immediate next steps
 
-**Highest value: run one calibration sweep on the hardware that already did the
-12.82 MB transfer.** That single 40-second run produces this project's first
-ranked optical table and closes most of what is left below.
+**Highest value: run one calibration sweep on the hardware that has already
+moved 300 MB.** It now aims first with no clock running, then walks eight
+settings you can hold individually — so it doubles as the tuning session the
+operator was doing by hand. It produces this project's first ranked optical
+table and closes most of what is left below.
 
 - [x] Confirm the engine readout says **ZXing (bundled)**, not jsQR. **Done
       2026-08-10** — a real run reported `ZXing (bundled)`, so the WASM embed
@@ -67,9 +75,10 @@ ranked optical table and closes most of what is left below.
 - [ ] Compare the sweep's px/module against the C920 forecast in `CAMERA.md`
       (predicted ~4.7 at 2×2 / 1000 B). If they disagree badly, the forecast
       model in `CAMERA.md` is what needs correcting, not the sweep.
-- [ ] Check whether the winning rung is the one `CAMERA.md` predicts (2×2 at
-      1200–1400 B). If 3×3 wins on a real sensor, the "Ludicrous is aspirational"
-      note in the known-limitations list is wrong and should be retracted.
+- [x] Check whether 3×3 works on a real sensor. **It does** — 300 MB moved on
+      3×3 repeatedly. The "aspirational" note is retracted.
+- [ ] Check whether the sweep's winner matches what was picked by hand (3×3 at
+      900 B gave the best measured run, 90.0 KB/s).
 - [ ] Confirm the "sender-limited" flag fires where expected — a laptop should
       be unable to paint 3×3 at 20 swaps/s.
 - [ ] Verify focus lock appears and helps on the C920.
@@ -97,18 +106,20 @@ the forecast tables in `CAMERA.md` around them, and relabel the presets, which
   300 MB has been done twice on real hardware. To move the ceiling again, fix
   the sender's 5x multiplier first (each worker gets its own copy of the
   payload); the receiver's pile is intrinsic to LT decoding. `DECISIONS.md` §18.
-- **Ludicrous 3×3 is aspirational on 1080p.** The preset label says 189 KB/s
-  nominal; the C920 forecast says the optics will not sustain it. Consider
-  relabelling the presets with realistic ranges once measured.
+- ~~**Ludicrous 3×3 is aspirational on 1080p.**~~ **Retracted 2026-08-10.**
+  3×3 was measured moving 300 MB repeatedly at 800 and 900 B per code. The
+  forecast that said otherwise only ever evaluated 3×3 at 1400 B. The presets
+  are still labelled with *nominal* rates, which measure ~25% above reality —
+  relabelling them with measured ranges is still worth doing.
 - **Progress is an estimate and says so.** It cannot be exact: the honest
   figure (solved blocks) is unwatchable on this codec -- 0% at the halfway
   point of a real transfer. `DECISIONS.md` §17. If the codec ever changes,
   re-run `tests/overhead.js` and update the `NEED` table in `template.html`.
-- **The calibration ladder is fixed at six settings.** It cannot recommend
+- **The calibration ladder is fixed at eight settings.** It cannot recommend
   anything it did not send — 2000 B, or ECC levels above L, are outside it. The
   verdict extrapolates one step beyond the winner and says it is extrapolating.
-  Widening the ladder costs sweep time linearly; 15 rungs is the ceiling the
-  flag nibble allows.
+  Widening the ladder costs sweep time linearly; **14** is the ceiling, because
+  rung 15 is reserved for the aiming pattern.
 - **jsQR-only browsers get a misleading sweep.** On the fallback decoder only
   one code per camera frame is read, so every grid rung scores as though it were
   1×1. The engine readout says which decoder is in use; the sweep does not

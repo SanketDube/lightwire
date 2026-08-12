@@ -164,6 +164,9 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
     <div class="bar"><i id="calBar"></i></div>
     <p class="note" id="calHint">Point the receiving camera at this screen and fill the frame. Each setting runs for a few seconds; missed codes cost nothing.</p>
     <div class="row" id="calRunRow">
+      <button class="primary" id="calStart">Start sweep</button>
+      <button id="calHold" class="hidden">Hold this one</button>
+      <button id="calNext" class="hidden">Next setting</button>
       <button id="calSkip">Skip — just stream</button>
       <button id="calAbort">Cancel</button>
     </div>
@@ -13134,7 +13137,19 @@ function getEngine(){
             if(cnv.width!==w){cnv.width=w;cnv.height=h;}
             ctx.drawImage(video,0,0,w,h);
             var img=ctx.getImageData(0,0,w,h);
-            return ZXingWASM.readBarcodes(img,{formats:["QRCode"],tryHarder:true,maxNumberOfSymbols:16})
+            /* Measured on a blurred, noised 3x3 grid at 1920x1080: dropping the
+               rotation and downscale searches cuts decode time 24% (63.6 -> 48.2 ms)
+               and loses nothing -- QR finder patterns are rotation-invariant anyway,
+               so tryRotate buys nothing here, and the codes always fill a known
+               fraction of the frame. tryInvert is DELIBERATELY left on: turning it
+               off was another 7% but it lost every code on an inverted screen, which
+               a forced dark mode can produce. tryHarder stays on; without it a code
+               went missing. GlobalHistogram binarizing was tried and is a disaster
+               here (0 of 9) -- the default local-average threshold is what survives
+               glare and uneven lighting. Decode time is what caps codes/s, which
+               caps throughput, so this is the most valuable knob in the file. */
+            return ZXingWASM.readBarcodes(img,{formats:["QRCode"],tryHarder:true,
+              tryRotate:false,tryDownscale:false,maxNumberOfSymbols:16})
               .then(function(rs){
                 if(!rs.length) return null;
                 return rs.map(function(r){
@@ -13273,14 +13288,15 @@ function buildGrid(){
    frame flags, so the receiver scores each one without a back-channel. */
 var CAL_LADDER=[
   {g:1,b:600},  {g:1,b:1400},
-  {g:2,b:800},  {g:2,b:1200},
-  {g:3,b:800},  {g:3,b:1200}
+  {g:2,b:800},  {g:2,b:1100}, {g:2,b:1400},
+  {g:3,b:700},  {g:3,b:900},  {g:3,b:1100}
 ];
+var CAL_AIM=15;      /* rung number reserved for the aiming phase; never ranked */
 var CAL_FPS=20;      /* swaps per second while sweeping */
-var CAL_MS=6500;     /* how long each rung runs */
-var CAL_SETTLE=1500; /* discarded at the start of a rung: focus hunts, code size changed */
-var CAL_QUIET=2500;  /* receiver: silence this long ends the sweep */
-var calRung=0,calActive=false,calTimer=null,calTick=null,calBytes=null,calRungT0=0,calStats=[],calRec=null,calKnobs=null;
+var CAL_MS=12000;    /* how long each rung runs unless held */
+var CAL_SETTLE=2500; /* discarded at the start of a rung: focus hunts, code size changed */
+var CAL_QUIET=5000;  /* receiver: silence this long ends the sweep */
+var calRung=0,calActive=false,calTimer=null,calTick=null,calBytes=null,calRungT0=0,calStats=[],calRec=null,calKnobs=null,calAiming=false,calHeld=false;
 
 function calLabel(r){ return r.g+"×"+r.g+" · "+r.b+" B"; }
 
@@ -13350,10 +13366,18 @@ function restoreKnobs(k){
   $("bs").value=k.b;   $("bsV").textContent=k.b;
   $("fps").value=k.f;  $("fpsV").textContent=k.f;
 }
+/* ---- phase 0: aiming ----
+   The sweep used to start the instant the button was pressed, which measured
+   whatever the camera happened to be looking at. In the field that is the wrong
+   order: the operator's own report was that angle, distance and manual focus
+   moved throughput more than any setting did, and a 31% gain was measured from
+   one focus adjustment alone. So aim first, on a single fixed setting, with no
+   clock running, and start the sweep only when the picture is as good as it is
+   going to get. */
 function startCalibration(){
   if(!calBytes) calBytes=testNoise();
   if(!calKnobs) calKnobs=saveKnobs();
-  calStats=[]; calRec=null; calActive=true; calRung=0;
+  calStats=[]; calRec=null; calActive=true; calRung=0; calHeld=false;
   $("calApplied").classList.add("hidden");
   $("pickPanel").classList.add("hidden");
   $("knobPanel").classList.add("hidden");
@@ -13361,13 +13385,51 @@ function startCalibration(){
   $("calRunRow").classList.remove("hidden");
   $("calVerdict").classList.add("hidden");
   $("calPanel").classList.remove("hidden");
-  $("calHead").textContent="Calibrating";
   $("calTable").innerHTML="";
-  nextRung();
+  beginAiming();
 }
+function beginAiming(){
+  calAiming=true; calRung=CAL_AIM;
+  $("calHead").textContent="Aim the camera";
+  $("calNow").textContent="Steady test pattern — 2×2 · 900 B";
+  $("calHint").textContent="Fill the receiving camera's frame with these codes, square on, and lock or hand-adjust the focus. Watch px/module on the receiving screen and keep going until it stops improving. Nothing is being measured yet — take as long as you like.";
+  $("calBar").style.width="0%";
+  $("calStart").classList.remove("hidden");
+  $("calHold").classList.add("hidden");
+  $("calNext").classList.add("hidden");
+  $("grid").value=2; $("gridV").textContent="2×2"; gridN=2;
+  $("bs").value=900; $("bsV").textContent=900;
+  $("fps").value=CAL_FPS; $("fpsV").textContent=CAL_FPS;
+  clearPreset();
+  fileMeta={bytes:calBytes,name:"lightwire-test.bin",type:"application/octet-stream"};
+  begin();
+}
+$("calStart").onclick=function(){
+  if(!calAiming) return;
+  calAiming=false; calRung=0;
+  $("calHead").textContent="Calibrating";
+  $("calHint").textContent="Each setting runs for "+Math.round(CAL_MS/1000)+" seconds. Hold one if you want to keep adjusting on it; missed codes cost nothing either way.";
+  $("calStart").classList.add("hidden");
+  $("calHold").classList.remove("hidden");
+  $("calNext").classList.remove("hidden");
+  nextRung();
+};
+$("calHold").onclick=function(){
+  calHeld=!calHeld;
+  this.textContent=calHeld?"Resume timer":"Hold this one";
+  if(calHeld){ if(calTimer){clearTimeout(calTimer);calTimer=null;} }
+  else { calRungT0=Date.now(); calTimer=setTimeout(nextRung,CAL_MS); }
+  paintCalProgress();
+};
+$("calNext").onclick=function(){
+  if(!calActive||calAiming) return;
+  if(calTimer){clearTimeout(calTimer);calTimer=null;}
+  calHeld=false; $("calHold").textContent="Hold this one";
+  nextRung();
+};
 function nextRung(){
-  if(!calActive) return;
-  if(calRung>=1) calStats.push({rung:calRung,cfg:CAL_LADDER[calRung-1],painted:paintRate()});
+  if(!calActive||calAiming) return;
+  if(calRung>=1&&calRung<=CAL_LADDER.length) calStats.push({rung:calRung,cfg:CAL_LADDER[calRung-1],painted:paintRate()});
   calRung++;
   if(calRung>CAL_LADDER.length){ endCalibration(); return; }
   var r=CAL_LADDER[calRung-1];
@@ -13384,17 +13446,26 @@ function nextRung(){
 }
 function paintCalProgress(){
   if(!calActive) return;
+  if(calAiming){
+    var apr=paintRate();
+    $("calNow").textContent="Steady test pattern — 2×2 · 900 B"
+      +(apr?" · painting "+apr.toFixed(0)+" codes/s":"")+" — no clock running";
+    return;
+  }
   var r=CAL_LADDER[calRung-1]; if(!r) return;
   var el=(Date.now()-calRungT0)/CAL_MS;
   var left=Math.max(0,Math.ceil((CAL_MS-(Date.now()-calRungT0))/1000));
-  var done=(calRung-1+Math.min(1,el))/CAL_LADDER.length;
+  var done=(calRung-1+(calHeld?1:Math.min(1,el)))/CAL_LADDER.length;
   $("calBar").style.width=Math.round(done*100)+"%";
   var pr=paintRate();
   $("calNow").textContent="Setting "+calRung+" of "+CAL_LADDER.length+" — "+calLabel(r)
-    +" · "+left+"s"+(pr?" · painting "+pr.toFixed(0)+" codes/s":"");
+    +" · "+(calHeld?"held":left+"s")+(pr?" · painting "+pr.toFixed(0)+" codes/s":"");
 }
 function endCalibration(){
-  calActive=false; calRung=0;
+  calActive=false; calRung=0; calAiming=false; calHeld=false;
+  $("calStart").classList.add("hidden");
+  $("calHold").classList.add("hidden"); $("calHold").textContent="Hold this one";
+  $("calNext").classList.add("hidden");
   if(calTimer){clearTimeout(calTimer);calTimer=null;}
   if(calTick){clearInterval(calTick);calTick=null;}
   if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
@@ -13448,7 +13519,7 @@ function applyRung(n,fps){
 }
 function cancelCalibration(keepStreaming){
   var last=calRung;
-  calActive=false; calRung=0;
+  calActive=false; calRung=0; calAiming=false; calHeld=false;
   if(calTimer){clearTimeout(calTimer);calTimer=null;}
   if(calTick){clearInterval(calTick);calTick=null;}
   $("calPanel").classList.add("hidden");
@@ -13626,7 +13697,7 @@ function stopSender(){
   if(sendTimer){clearInterval(sendTimer);sendTimer=null;}
   if(calTimer){clearTimeout(calTimer);calTimer=null;}
   if(calTick){clearInterval(calTick);calTick=null;}
-  calActive=false; calRung=0;
+  calActive=false; calRung=0; calAiming=false; calHeld=false;
   enc=null; fileMeta=null; frameQ=[]; pendingGen=0;
   stopWatching(); releaseAwake("s");
 }
@@ -13892,6 +13963,11 @@ function handleCalFrame(txt,codeW,h){
   var rung=LW.rungOf(h.flags), now=Date.now();
   if(!calSeen||now-calLast>CAL_QUIET) calReset();
   calSeen=true; calLast=now;
+  /* The aiming pattern is deliberately never ranked. It exists so the operator
+     can move the camera and watch px/module respond, which the field runs said
+     matters more than any setting -- one manual focus adjustment was worth 31%.
+     Scoring it would put a rung in the table that nobody chose. */
+  if(rung===CAL_AIM){ aimFrame(txt,codeW,h,now); return; }
   var st=calRuns[rung];
   if(!st||st.session!==h.session){
     st=calRuns[rung]={rung:rung,session:h.session,bs:h.blockSize,ecc:(h.flags>>2)&3,
@@ -13907,7 +13983,34 @@ function handleCalFrame(txt,codeW,h){
   if(calEndTimer) clearTimeout(calEndTimer);
   calEndTimer=setTimeout(finishCal,CAL_QUIET);
 }
+var aimSt=null;
+function aimFrame(txt,codeW,h,now){
+  if(!aimSt||aimSt.session!==h.session)
+    aimSt={session:h.session,bs:h.blockSize,modules:modulesFor(txt,(h.flags>>2)&3),
+           seeds:new Set(),n:0,first:0,last:0,ppm:0,best:0};
+  if(aimSt.seeds.has(h.seed)) return;
+  aimSt.seeds.add(h.seed);
+  if(codeW&&aimSt.modules){
+    var p=codeW/aimSt.modules;
+    aimSt.ppm=aimSt.ppm?aimSt.ppm*0.8+p*0.2:p;
+    if(aimSt.ppm>aimSt.best) aimSt.best=aimSt.ppm;
+  }
+  aimSt.n++; aimSt.last=now; if(!aimSt.first) aimSt.first=now;
+  if(now-calPaintAt<250) return;
+  calPaintAt=now;
+  var span=(aimSt.last-aimSt.first)/1000;
+  var rate=span>=1?(aimSt.n-1)/span:0;
+  var v=aimSt.ppm?(+aimSt.ppm.toFixed(1)):0;
+  $("rcalHead").textContent="Aim the camera";
+  $("rcalNow").textContent=(v?"px/module "+v.toFixed(1)+"  ("+(v>=4?"comfortable":v>=3?"adequate":"too dense — move closer")+")":"looking…")
+    +(aimSt.best?"   ·   best so far "+aimSt.best.toFixed(1):"")
+    +(rate?"   ·   "+rate.toFixed(0)+" codes/s":"");
+  $("rcalTable").innerHTML="";
+  $("rcalVerdict").innerHTML="Move the camera and the focus until this stops improving, then press <b>Start sweep</b> on the sending machine. Nothing here is being scored yet.";
+  $("rcalVerdict").classList.remove("hidden");
+}
 function calReset(){
+  aimSt=null;
   calRuns={}; calSeen=false; rcalRec=null;
   if(calEndTimer){clearTimeout(calEndTimer);calEndTimer=null;}
   $("progPanel").classList.add("hidden");
@@ -14059,8 +14162,13 @@ function paint(){
   $("rFps").textContent=r?r.toFixed(1)+"/s":"—";
   $("rKbs").textContent=r?(r*recvBs/1024).toFixed(1)+" KB/s":"—";
   if(ppmEma){
-    $("rPpm").textContent=ppmEma.toFixed(1);
-    $("rVerdict").textContent=ppmEma>=4?"comfortable":ppmEma>=3?"adequate":"too dense — closer, or fewer bytes/code";
+    /* Judge the ROUNDED figure, not the raw one. A field screenshot showed
+       "3.0" next to "too dense" -- the underlying value was 2.95 -- while that
+       same transfer was running happily at 71 KB/s. A readout that contradicts
+       itself teaches the operator to ignore it. */
+    var shown=+ppmEma.toFixed(1);
+    $("rPpm").textContent=shown.toFixed(1);
+    $("rVerdict").textContent=shown>=4?"comfortable":shown>=3?"adequate":"too dense — closer, or fewer bytes/code";
   }
   var pct=progressPct();
   if(pct!==lastPct){
@@ -14136,6 +14244,7 @@ function resetDoneUI(){
   $("unlockRow").classList.add("hidden");
   $("unlockMsg").classList.add("hidden");
   $("save").classList.remove("hidden");
+  $("save").textContent="Save file";
   $("doneHash").textContent="";
   $("rpass").value="";
   $("donePanel").classList.remove("done","fail");
@@ -14202,6 +14311,12 @@ function openPipeline(payload,flags,pass){
     $("doneTitle").textContent="Complete — checksum verified";
     $("doneMsg").textContent=out.meta.n+" · "+fmt(out.meta.s)+" · recovered from "+readCount+" codes.";
     announceDone("Complete");
+    /* Save it without being asked. After an hour of streaming, requiring one
+       more click to keep the file is a way to lose it -- close the tab and the
+       whole transfer is gone. The button stays as a fallback, because a browser
+       may refuse a download it did not see a click for. */
+    $("save").textContent="Save again";
+    saveResult();
     $("rName").textContent=out.meta.n.length>18?out.meta.n.slice(0,16)+"…":out.meta.n;
     LW.sha256Hex(out.data).then(function(h){
       if(h&&result===out) $("doneHash").textContent="Fingerprint "+fp(h)+" — should match the sender's.";
@@ -14228,14 +14343,15 @@ function fail(msg){
   $("save").classList.add("hidden");
   $("unlockRow").classList.add("hidden");
 }
-$("save").onclick=function(){
+function saveResult(){
   if(!result) return;
   var blob=new Blob([result.data],{type:result.meta.t||"application/octet-stream"});
   var a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=result.meta.n;
   document.body.appendChild(a); a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},2000);
-};
+}
+$("save").onclick=saveResult;
 $("again").onclick=function(){
   dec=null; recvSession=0; recvFlags=0; result=null; pendingRaw=null; readCount=0; rateWin=[];
   resetDoneUI();
