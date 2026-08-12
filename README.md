@@ -17,11 +17,10 @@ dist/lightwire.html      ← the deliverable. Open it in a browser. That's it.
 **[Download the latest release](https://github.com/SanketDube/lightwire/releases/latest)**
 — one file, nothing to install. Copy it to both machines and open it.
 
-**Status:** working on real hardware. Measured runs so far: a 12.82 MB
-presentation at **60.6 KB/s**, and **300 MB twice** at up to **83.6 KB/s** —
-393,217 blocks, checksums verified (`docs/CAMERA.md`). The per-camera *forecast
-tables* in the docs are still forecasts and still say so; one of them has
-already been proved too pessimistic. Download-only: there is no hosted demo, so
+**Status:** working on real hardware. Six measured transfers so far, up to
+**300 MB** and a best of **90.0 KB/s**, checksums verified (`docs/CAMERA.md`).
+The per-camera *forecast tables* in the docs are still forecasts and still say
+so; one of them has already been retracted as too pessimistic. Download-only: there is no hosted demo, so
 nobody is asked to trust a server for an air-gap tool.
 
 > **Built by prompting, not by typing code.** I am not a programmer. Lightwire
@@ -96,7 +95,7 @@ exists for. Your passphrase is the whole of the security, so make it long.
 
 ### How fast?
 
-Measured, not estimated: **83.6 KB/s** moving a 300 MB file on an ordinary
+Measured, not estimated: **90.0 KB/s** moving a 300 MB file on an ordinary
 webcam, and 60.6 KB/s on a 12.8 MB one. Fast enough for documents, key files,
 spreadsheets, archives. Not for video. The limit is the camera, not either
 computer — and one adjustment mattered more than any setting: **focusing the
@@ -110,15 +109,20 @@ until the end, which costs roughly four times the file size in memory, so
 300 MB needs about 1.2 GB of browser to land.
 
 You do not have to guess at your own camera. **Click "Send test signal"** and
-the tool spends about forty seconds trying six different settings, then the
-receiving screen tells you in plain language which one your camera can actually
-hold, and the sending screen gives you a button to adopt it.
+it does two things. First it shows a steady pattern and waits, with no clock
+running, while you aim: move the camera, change the angle, pin the focus, and
+watch **px/module** respond on the receiving screen. That part matters more
+than any setting — one focus adjustment was worth 31% on a real transfer. Then
+press *Start sweep* and it walks eight settings, twelve seconds each, and you
+can **hold** any of them while you keep adjusting. The receiving screen names
+the winner in plain language and the sending screen gives you a button to adopt
+it.
 
 <p align="center">
   <img src="screenshots/shot6-recv-verdict.png" alt="The calibration result: six settings scored, the best one highlighted, and a plain-language recommendation" width="72%">
 </p>
 
-*Six settings measured, ranked by what actually got through. The recommendation
+*Every setting measured, ranked by what actually got through. The recommendation
 at the bottom is written to be read, not decoded — and anything it guesses
 rather than measured says so.*
 
@@ -127,12 +131,13 @@ rather than measured says so.*
 1. Copy `lightwire.html` onto both computers. That one file is the entire
    program — there is nothing to install.
 2. On the **receiving** computer, open it, go to *Receive* and start the camera.
-3. On the **sending** computer, open it and click *Send test signal* once to
-   let it find your camera's best setting. (Skippable. Do it the first time.)
+3. On the **sending** computer, open it and click *Send test signal*. Aim the
+   camera while it waits, then let it find your best setting. (Skippable, but
+   do it the first time — it is where the speed comes from.)
 4. Drag your file onto the sending window. Codes start flowing. Point the
    camera at that screen and fill the frame.
-5. Wait for **"Complete — checksum verified"** on the receiving side, then click
-   *Save file*. The checksum means the file arrived byte for byte, not roughly.
+5. When it says **"Complete — checksum verified"**, the file has already saved
+   itself. The checksum means it arrived byte for byte, not roughly.
 
 One catch worth knowing up front: browsers only hand over a camera to a page
 served over `https` or `localhost`, not to a file opened straight off the disk.
@@ -149,8 +154,8 @@ you want the tool to pick your settings for you.
 
 **Receiving machine:** open the same file, switch to *Receive*, click
 *Start camera*, point it at the sending screen. Watch the estimated progress
-bar climb.
-When it says "Complete — checksum verified", click *Save file*.
+bar climb. On completion the file downloads on its own; the *Save file* button
+is there as a fallback.
 
 **Camera access needs a secure context.** Chrome treats `file://` as secure for
 crypto and hashing, but `getUserMedia` generally is not granted there. On the
