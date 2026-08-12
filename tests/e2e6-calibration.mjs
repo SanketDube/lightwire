@@ -73,8 +73,11 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
   const ladder = await page.evaluate(() => window.__calLadder.length);
   ok("sweep visited every rung", seen.size === ladder, `saw ${seen.size} of ${ladder}`);
-  ok("the ladder covers all three grids", await page.evaluate(() =>
-    new Set(window.__calLadder.map((r) => r.g)).size === 3));
+  ok("the ladder covers four distinct arrangements including a wide one",
+     await page.evaluate(() => {
+       const shapes = new Set(window.__calLadder.map((r) => r.c + "x" + r.r));
+       return shapes.size === 4 && shapes.has("4x2");
+     }));
 
   const state = await page.evaluate(() => ({
     rung: window.__calRung(),
@@ -104,19 +107,20 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     const RUNG = 4, r = window.__calLadder[RUNG - 1], fps = 14;
     const hex2 = (n) => ("00" + n.toString(16).toUpperCase()).slice(-2);
     const hex4 = (n) => ("0000" + n.toString(16).toUpperCase()).slice(-4);
-    window.__takeRec("C" + hex2(RUNG) + (r.g & 15).toString(16).toUpperCase() + hex4(r.b) + hex2(fps));
-    return { g: r.g, b: r.b, fps };
+    const gdig = (((r.c - 1) * 4 + (r.r - 1)) & 15).toString(16).toUpperCase();
+    window.__takeRec("C" + hex2(RUNG) + gdig + hex4(r.b) + hex2(fps));
+    return { c: r.c, r: r.r, b: r.b, fps };
   });
   await page.click("#calTable tr.win button");
   const applied = await page.evaluate(() => ({
-    grid: document.getElementById("grid").value,
+    gridV: document.getElementById("gridV").textContent,
     bs: document.getElementById("bs").value,
     fps: document.getElementById("fps").value,
     note: document.getElementById("calApplied").textContent,
     pickBack: !document.getElementById("pickPanel").classList.contains("hidden")
   }));
   ok("recommendation applied to the knobs",
-     applied.grid === String(want.g) && applied.bs === String(want.b) && applied.fps === String(want.fps),
+     applied.gridV === want.c + "×" + want.r && applied.bs === String(want.b) && applied.fps === String(want.fps),
      JSON.stringify(applied) + " wanted " + JSON.stringify(want));
   ok("back at the file picker with a note", applied.pickBack && applied.note.indexOf(want.b + " B") >= 0);
 
@@ -194,7 +198,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   ok("calibration panel took over from the transfer panel", res.panelShown && res.progHidden);
   ok("finished", res.head === "Calibration done");
   ok("highest goodput wins, not the highest code rate",
-     res.rec && res.rec.rung === 4 && res.rec.b === plan[2].bs && res.rec.g === 2,
+     res.rec && res.rec.rung === 4 && res.rec.b === plan[2].bs && res.rec.c === 2 && res.rec.r === 2,
      JSON.stringify(res.rec));
   ok("winning row highlighted", res.winRow.indexOf(plan[2].bs + " B") >= 0, res.winRow.trim());
   ok("recommends a swaps-per-second figure", res.rec.fps >= 2 && res.rec.fps <= 30, "fps=" + res.rec.fps);
@@ -214,7 +218,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     const r = window.__rcal().rec;
     const hex2 = (n) => ("00" + n.toString(16).toUpperCase()).slice(-2);
     const hex4 = (n) => ("0000" + n.toString(16).toUpperCase()).slice(-4);
-    const field = "C" + hex2(r.rung) + (r.g & 15).toString(16).toUpperCase() + hex4(r.b) + hex2(r.fps);
+    const field = "C" + hex2(r.rung) + (((r.c - 1) * 4 + (r.r - 1)) & 15).toString(16).toUpperCase() + hex4(r.b) + hex2(r.fps);
     document.getElementById("tabSend").click();
     window.__takeRec(field);
     return { field, back: window.__calRec() };
@@ -229,7 +233,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     return window.__calRec();
   });
   ok("a disagreeing ladder is ignored rather than guessed",
-     mismatch && mismatch.rung === 4 && mismatch.g === 2, JSON.stringify(mismatch));
+     mismatch && mismatch.rung === 4 && mismatch.c === 2, JSON.stringify(mismatch));
 
   ok("no page errors while scoring", errors.length === 0, errors.join(" | "));
   await page.close();

@@ -81,7 +81,7 @@ input[type=password]{font-family:var(--mono);font-size:13px;background:var(--pan
 .card canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
 .card.small{width:min(34vw,150px);line-height:0}
 .card:fullscreen{display:flex;align-items:center;justify-content:center;padding:0;background:#fff;cursor:zoom-out;width:auto}
-.card:fullscreen .qgrid{width:min(97vw,97vh)}
+.card:fullscreen .qgrid{width:min(97vw,calc(97vh * var(--gaspect,1)))}
 
 .readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:2px;overflow:hidden}
 .cell{background:var(--panel);padding:10px;min-width:0}
@@ -220,6 +220,15 @@ footer{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1
       <div class="knob">
         <label for="grid">Codes on screen <b id="gridV">1×1</b></label>
         <input type="range" id="grid" min="1" max="3" value="1">
+      </div>
+      <div class="knob">
+        <label for="shape">Arrangement <b id="shapeV">auto</b></label>
+        <select id="shape">
+          <option value="auto" selected>Auto — match this screen</option>
+          <option value="wide">Wide (for 16:9 cameras)</option>
+          <option value="square">Square</option>
+          <option value="tall">Tall (portrait phone)</option>
+        </select>
       </div>
       <div class="knob">
         <label for="fps">Swaps per second <b id="fpsV">10</b></label>
@@ -13265,7 +13274,32 @@ function fmt(n){ return n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/104
 
 /* ================= SENDER ================= */
 var enc=null,sendTimer=null,sent=0,paused=false,sessionId=0,fileMeta=null,beginToken=0;
-var gridN=1,cellCanvas=[],streamT0=0,paintBase=0;
+var gridC=1,gridR=1,cellCanvas=[],streamT0=0,paintBase=0;
+function cellCount(){ return gridC*gridR; }
+/* Which way should the codes be laid out? A square grid on a 16:9 camera can
+   only be enlarged until its HEIGHT fills the frame -- the sensor's side
+   margins are simply thrown away, 44% of its pixels. An arrangement matching
+   the sensor's shape lets the camera move closer until both dimensions fill,
+   and every code lands bigger. Measured as capacity (cells x span^2): 4x2 is
+   158% of 3x3 on a 1080p sensor, with one FEWER code to draw. The trap is
+   that "wider is better" is false past the sensor's own ratio -- 9x1 is 35%.
+   The sender cannot see the camera, so auto matches its own screen, which is
+   nearly always the same shape as the webcam pointed at it. */
+function arrangement(d,shape){
+  if(shape==="auto"){
+    var a=(screen.width||1)/(screen.height||1);
+    shape=a>=1.6?"wide":a<=0.7?"tall":"square";
+  }
+  if(shape==="wide") return [[2,1],[3,2],[4,2]][d-1];
+  if(shape==="tall") return [[1,2],[2,3],[2,4]][d-1];
+  return [[d,d]][0];
+}
+function applyArrangement(){
+  var cr=arrangement(+$("grid").value,$("shape").value);
+  gridC=cr[0]; gridR=cr[1];
+  $("gridV").textContent=gridC+"×"+gridR;
+  $("shapeV").textContent=$("shape").value;
+}
 var ackVideo=$("ackCam"),ackCanvas=document.createElement("canvas"),ackCtx=ackCanvas.getContext("2d",{willReadFrequently:true});
 var ackLoop=null,ackBusy=false;
 
@@ -13332,7 +13366,7 @@ function initWorkers(payload,blockSize,flags){
 }
 function refill(){
   if(!workers.length||!enc) return;
-  var cells=gridN*gridN, low=cells*3, want=cells*8;
+  var cells=cellCount(), low=cells*3, want=cells*8;
   if(frameQ.length+pendingGen<low){
     var per=Math.ceil(want/workers.length);
     for(var i=0;i<workers.length;i++){
@@ -13347,9 +13381,10 @@ function blit(cv,f){
 }
 function buildGrid(){
   var g=$("qrGrid"); g.innerHTML="";
-  g.style.gridTemplateColumns="repeat("+gridN+",1fr)";
+  g.style.gridTemplateColumns="repeat("+gridC+",1fr)";
+  g.style.setProperty("--gaspect",(gridC/gridR).toString());
   cellCanvas=[];
-  for(var i=0;i<gridN*gridN;i++){
+  for(var i=0;i<cellCount();i++){
     var c=document.createElement("canvas");
     g.appendChild(c); cellCanvas.push(c);
   }
@@ -13361,10 +13396,16 @@ function buildGrid(){
    preset: it makes the RECEIVER the bottleneck, so what comes back is the
    camera's ceiling rather than the ladder's. The rung number rides in the
    frame flags, so the receiver scores each one without a back-channel. */
+/* Concrete arrangements, not densities: sender and receiver must agree on what
+   a rung number means without sharing the shape setting. The wide rungs exist
+   because a 4x2 on a 16:9 sensor carries 158% of a 3x3's optical capacity --
+   and they will simply lose the ranking on a portrait camera, which is the
+   sweep working, not failing. */
 var CAL_LADDER=[
-  {g:1,b:600},  {g:1,b:1400},
-  {g:2,b:800},  {g:2,b:1100}, {g:2,b:1400},
-  {g:3,b:700},  {g:3,b:900},  {g:3,b:1100}
+  {c:1,r:1,b:600},  {c:1,r:1,b:1400},
+  {c:2,r:2,b:800},  {c:2,r:2,b:1100},
+  {c:4,r:2,b:900},  {c:4,r:2,b:1200},
+  {c:3,r:3,b:800},  {c:3,r:3,b:1000}
 ];
 var CAL_AIM=15;      /* rung number reserved for the aiming phase; never ranked */
 var CAL_FPS=20;      /* swaps per second while sweeping */
@@ -13373,11 +13414,12 @@ var CAL_SETTLE=2500; /* discarded at the start of a rung: focus hunts, code size
 var CAL_QUIET=5000;  /* receiver: silence this long ends the sweep */
 var calRung=0,calActive=false,calTimer=null,calTick=null,calBytes=null,calRungT0=0,calStats=[],calRec=null,calKnobs=null,calAiming=false,calHeld=false;
 
-function calLabel(r){ return r.g+"×"+r.g+" · "+r.b+" B"; }
+function calLabel(r){ return r.c+"×"+r.r+" · "+r.b+" B"; }
 
 /* ----- knobs & presets ----- */
-$("grid").oninput=function(){$("gridV").textContent=this.value+"×"+this.value;};
-$("grid").onchange=function(){ if(calActive) return; gridN=+this.value; clearPreset(); if(fileMeta) begin(); };
+$("grid").oninput=function(){var cr=arrangement(+this.value,$("shape").value);$("gridV").textContent=cr[0]+"×"+cr[1];};
+$("grid").onchange=function(){ if(calActive) return; applyArrangement(); clearPreset(); if(fileMeta) begin(); };
+$("shape").onchange=function(){ if(calActive) return; applyArrangement(); clearPreset(); if(fileMeta) begin(); };
 $("fps").oninput=function(){$("fpsV").textContent=this.value; if(calActive) return; clearPreset(); if(sendTimer) restartTimer();};
 $("bs").oninput=function(){$("bsV").textContent=this.value;};
 $("bs").onchange=function(){ if(calActive) return; clearPreset(); if(fileMeta) begin(); };
@@ -13386,12 +13428,12 @@ $("ecc").oninput=function(){$("eccV").textContent=ECCNAME[+this.value]};
 $("ecc").onchange=function(){ if(calActive) return; if(fileMeta) begin(); };
 $("pass").oninput=function(){$("passState").textContent=this.value?"AES-256-GCM":"off — sends in the clear";};
 
-function applyPreset(btn,f,b,g){
+function applyPreset(btn,f,b,d){
   ["pSteady","pFast","pLudicrous"].forEach(function(id){$(id).setAttribute("aria-pressed",id===btn)});
   $("fps").value=f; $("fpsV").textContent=f;
   $("bs").value=b; $("bsV").textContent=b;
-  $("grid").value=g; $("gridV").textContent=g+"×"+g;
-  gridN=g;
+  $("grid").value=d;
+  applyArrangement();
   if(fileMeta) begin();
 }
 function clearPreset(){ ["pSteady","pFast","pLudicrous"].forEach(function(id){$(id).setAttribute("aria-pressed","false")}); }
@@ -13434,10 +13476,11 @@ $("testSig").onclick=function(){ startCalibration(); };
 /* The sweep drives the knobs, so it has to hand them back. Without this the
    user is left looking at whatever the last rung happened to be -- 3x3 at
    1200 B -- and would send their next real file at a setting nothing measured. */
-function saveKnobs(){ return {g:$("grid").value,b:$("bs").value,f:$("fps").value}; }
+function saveKnobs(){ return {g:$("grid").value,sh:$("shape").value,b:$("bs").value,f:$("fps").value}; }
 function restoreKnobs(k){
   if(!k) return;
-  $("grid").value=k.g; $("gridV").textContent=k.g+"×"+k.g; gridN=+k.g;
+  $("grid").value=k.g; $("shape").value=k.sh;
+  applyArrangement();
   $("bs").value=k.b;   $("bsV").textContent=k.b;
   $("fps").value=k.f;  $("fpsV").textContent=k.f;
 }
@@ -13472,7 +13515,7 @@ function beginAiming(){
   $("calStart").classList.remove("hidden");
   $("calHold").classList.add("hidden");
   $("calNext").classList.add("hidden");
-  $("grid").value=2; $("gridV").textContent="2×2"; gridN=2;
+  $("grid").value=2; $("shape").value="square"; applyArrangement();
   $("bs").value=900; $("bsV").textContent=900;
   $("fps").value=CAL_FPS; $("fpsV").textContent=CAL_FPS;
   clearPreset();
@@ -13508,7 +13551,7 @@ function nextRung(){
   calRung++;
   if(calRung>CAL_LADDER.length){ endCalibration(); return; }
   var r=CAL_LADDER[calRung-1];
-  $("grid").value=r.g; $("gridV").textContent=r.g+"×"+r.g; gridN=r.g;
+  gridC=r.c; gridR=r.r; $("gridV").textContent=r.c+"×"+r.r;
   $("bs").value=r.b;   $("bsV").textContent=r.b;
   $("fps").value=CAL_FPS; $("fpsV").textContent=CAL_FPS;
   clearPreset();
@@ -13567,7 +13610,7 @@ function renderCalTable(){
   for(var i=0;i<CAL_LADDER.length;i++){
     var r=CAL_LADDER[i], s=null;
     for(var j=0;j<calStats.length;j++) if(calStats[j].rung===i+1) s=calStats[j];
-    var offered=CAL_FPS*r.g*r.g;
+    var offered=CAL_FPS*r.c*r.r;
     var painted=s?s.painted:0;
     var short=painted&&painted<offered*0.85;
     h+="<tr"+(calRec&&calRec.rung===i+1?' class="win"':"")+">"
@@ -13585,7 +13628,10 @@ function applyRung(n,fps){
   var r=CAL_LADDER[n-1]; if(!r) return;
   var f=fps||(calRec&&calRec.rung===n?calRec.fps:CAL_FPS);
   f=Math.max(2,Math.min(30,Math.round(f)));
-  applyPreset(null,f,r.b,r.g);
+  /* express the winning arrangement through the knobs so what the user sees
+     afterwards is exactly what won */
+  $("shape").value=(r.c>r.r)?"wide":(r.c<r.r)?"tall":"square";
+  applyPreset(null,f,r.b,Math.max(r.c,r.r)>=3?3:Math.max(r.c,r.r));
   $("calPanel").classList.add("hidden");
   $("pickPanel").classList.remove("hidden");
   $("knobPanel").classList.remove("hidden");
@@ -13639,7 +13685,7 @@ $("calDone").onclick=function(){
 var SIZE_CAP=512*1024*1024;   /* beyond here the receiver's peak is past what browsers give a tab */
 var SIZE_WARN=64*1024*1024;   /* beyond here it is a long sit, so say so and let the user choose */
 function transferEstimate(bytes){
-  var perSec=(+$("fps").value)*gridN*gridN*(+$("bs").value);
+  var perSec=(+$("fps").value)*cellCount()*(+$("bs").value);
   var mins=bytes/perSec/60;
   return {nominal:mins, text:mins>=90?(mins/60).toFixed(1)+" hours":Math.round(mins)+" minutes"};
 }
@@ -13727,7 +13773,7 @@ function begin(){
 function restartTimer(){
   if(sendTimer) clearInterval(sendTimer);
   if(!enc) return;
-  var fps=+$("fps").value, cells=gridN*gridN;
+  var fps=+$("fps").value, cells=cellCount();
   $("sEta").textContent=Math.max(1,Math.ceil(enc.K/(fps*cells)))+"s";
   $("sNom").textContent=fmt(fps*cells*(+$("bs").value))+"/s";
   streamT0=Date.now(); paintBase=sent;   /* re-baseline the rate, keep the count */
@@ -13743,7 +13789,7 @@ function paintRate(){
 function tick(){
   if(paused||!enc) return;
   refill();
-  var cells=gridN*gridN;
+  var cells=cellCount();
   for(var i=0;i<cells;i++){
     var slot=(cellPhase+i)%cells;
     if(workers.length){
@@ -13832,14 +13878,17 @@ function startWatching(){
     });
   }).catch(function(){ $("sAck").textContent="no camera"; });
 }
-/* "C" + rung(2) + grid(1) + bytes(4) + fps(2), all hex */
+/* "C" + rung(2) + arrangement(1: (cols-1)*4+(rows-1)) + bytes(4) + fps(2), hex.
+   The packing changed with the rectangular ladder; both sides carry the same
+   ladder so the rung number is the real key and the rest is verification. */
 function takeRecommendation(field){
   if(field.length<10) return;
-  var rec={rung:parseInt(field.substr(1,2),16),g:parseInt(field.substr(3,1),16),
+  var gv=parseInt(field.substr(3,1),16);
+  var rec={rung:parseInt(field.substr(1,2),16),c:(gv>>2)+1,r:(gv&3)+1,
            b:parseInt(field.substr(4,4),16),fps:parseInt(field.substr(8,2),16)};
-  if(!rec.rung||!rec.g||!rec.b||!rec.fps) return;
+  if(!rec.rung||isNaN(gv)||!rec.b||!rec.fps) return;
   var r=CAL_LADDER[rec.rung-1];
-  if(!r||r.g!==rec.g||r.b!==rec.b) return;   /* ladders disagree: ignore rather than guess */
+  if(!r||r.c!==rec.c||r.r!==rec.r||r.b!==rec.b) return;   /* ladders disagree: ignore rather than guess */
   if(calRec&&calRec.rung===rec.rung&&calRec.fps===rec.fps) return;
   calRec=rec;
   showRecommendation();
@@ -14156,7 +14205,7 @@ function finishCal(){
   var win=pool[0];
   for(var i=1;i<pool.length;i++) if(pool[i].sc.kbs>win.sc.kbs) win=pool[i];
   var cfg=win.cfg&&win.cfg.b===win.st.bs?win.cfg:null;
-  var cells=cfg?cfg.g*cfg.g:1;
+  var cells=cfg?cfg.c*cfg.r:1;
   /* the sender only needs to swap fast enough to keep the camera fed, plus a
      little headroom; beyond that it burns CPU rendering codes nobody reads */
   var fps=Math.max(2,Math.min(30,Math.round(win.sc.rate/cells*1.25)));
@@ -14169,7 +14218,7 @@ function finishCal(){
 
   var msg="Best measured: <b>"+(cfg?calLabel(cfg):win.st.bs+" B/code")+"</b> at <b>"
     +win.sc.kbs.toFixed(1)+" KB/s</b>"+(win.st.ppm?", "+win.st.ppm.toFixed(1)+" px per module":"")+".";
-  if(cfg) msg+=" Set the sender to <b>"+cfg.g+"×"+cfg.g+"</b>, <b>"+cfg.b
+  if(cfg) msg+=" Set the sender to <b>"+cfg.c+"×"+cfg.r+"</b>, <b>"+cfg.b
     +" bytes per code</b>, <b>"+fps+" swaps per second</b>.";
   if(ceiling) msg+=" It never stopped climbing — the sweep's own swap rate was the ceiling, not your camera, so push swaps per second higher still.";
   if(full.length<rows.length) msg+=" Some settings were only seen in part; those are marked partial and were not ranked.";
@@ -14183,7 +14232,7 @@ function finishCal(){
     for(var b=2000;b>cfg.b;b-=200){
       var m=modulesForBytes(b,win.st.ecc);
       if(m&&cellPx/m>=3.6){
-        msg+=" Predicted, not measured: at this distance "+cfg.g+"×"+cfg.g+" should still read at "
+        msg+=" Predicted, not measured: at this distance "+cfg.c+"×"+cfg.r+" should still read at "
           +b+" B/code (~"+(cellPx/m).toFixed(1)+" px per module). Worth trying.";
         break;
       }
@@ -14193,7 +14242,7 @@ function finishCal(){
   $("rcalVerdict").classList.remove("hidden");
 
   if(cfg){
-    rcalRec={rung:win.st.rung,g:cfg.g,b:cfg.b,fps:fps};
+    rcalRec={rung:win.st.rung,c:cfg.c,r:cfg.r,b:cfg.b,fps:fps};
     drawCalAck(rcalRec);
     $("rcalAckStage").classList.remove("hidden");
   }
@@ -14201,7 +14250,7 @@ function finishCal(){
 function hex1(n){ return (n&15).toString(16).toUpperCase(); }
 function drawCalAck(rec){
   drawQR($("calAckQr"),
-    "A1:00000000:0000:0000:00:C"+hex2(rec.rung)+hex1(rec.g)+hex4(rec.b)+hex2(rec.fps),"M");
+    "A1:00000000:0000:0000:00:C"+hex2(rec.rung)+hex1((rec.c-1)*4+(rec.r-1))+hex4(rec.b)+hex2(rec.fps),"M");
 }
 $("rcalDismiss").onclick=function(){
   calRuns={}; calSeen=false; rcalRec=null;
