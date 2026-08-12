@@ -1067,7 +1067,7 @@ function stopWatching(){
 }
 
 /* ================= RECEIVER ================= */
-var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastPct=-1,result=null,ackClock=null;
+var dec=null,recvSession=0,recvFlags=0,recvBs=600,scanning=false,camBusy=false,readCount=0,rateWin=[],lastPct=-1,result=null,ackClock=null,paintAt=0;
 var activeEngine=null,sessModules=0,ppmEma=0;
 var pendingRaw=null;
 var calRuns={},calLast=0,calEndTimer=null,calSeen=false,rcalRec=null,calPaintAt=0;
@@ -1222,8 +1222,13 @@ function handleFrame(txt,codeW){
     rateWin.push(nowMs);
     while(rateWin.length&&nowMs-rateWin[0]>RATE_WINDOW_MS) rateWin.shift();
   }
-  paint();
-  if(dec.isDone()) finish();
+  /* The readout repaints on a clock, not per code. Writing eight DOM text
+     nodes per accepted code put layout work on the per-code path -- the same
+     class of mistake as the block grid (DECISIONS #17), just smaller. At 100+
+     codes/s the numbers changed faster than anyone can read anyway. */
+  var pNow=Date.now();
+  if(pNow-paintAt>=150){ paintAt=pNow; paint(); }
+  if(dec.isDone()){ paint(); finish(); }
 }
 
 /* ================= CALIBRATION SCORING (receiver side) =================

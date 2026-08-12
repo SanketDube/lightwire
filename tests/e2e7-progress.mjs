@@ -78,6 +78,10 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
     const payload = new Uint8Array(512 * 1024);
     const enc = LW.makeEncoder(payload, 800, 0x0bad0bad, 0);
     for (let seed = 1; seed < 400; seed++) window.__feed(LW.base45Encode(enc.frame(seed)), 495);
+    /* the readout repaints on a 150ms clock now, so cross one tick and feed
+       one more code to give it a reason to paint */
+    await new Promise((r) => setTimeout(r, 200));
+    window.__feed(LW.base45Encode(enc.frame(400)), 495);
     const d = window.__dec();
     return { solved: d.solvedCount, K: d.K, shown: document.getElementById("covPct").textContent };
   });
@@ -168,7 +172,14 @@ async function drop(sizeBytes, answer) {
   });
   await page.goto(URL);
   const res = await page.evaluate(async (n) => {
-    const f = new File([new Uint8Array(n)], "big.bin", { type: "application/octet-stream" });
+    /* build big Files from repeated references to one 1 MB part -- the size
+       check under test reads f.size before any bytes, and materialising a
+       real 600 MB array here was hanging the suite on a loaded machine */
+    const part = new Uint8Array(1024 * 1024);
+    const parts = new Array(Math.floor(n / part.length)).fill(part);
+    const rem = n % part.length;
+    if (rem) parts.push(new Uint8Array(rem));
+    const f = new File(parts, "big.bin", { type: "application/octet-stream" });
     const dt = new DataTransfer(); dt.items.add(f);
     document.getElementById("drop").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
     /* an 80 MB file is a real amount of work to slice up before the first code

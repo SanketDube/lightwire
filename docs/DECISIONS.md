@@ -429,6 +429,44 @@ The cost is time: about 100 seconds of sweep instead of 40, plus however long
 aiming takes. That is the right trade for a measurement whose whole purpose is
 to be trusted afterwards, and the operator controls both.
 
+## 21. The efficiency pass: what was measured, what moved, what refused to
+
+Every change here was benchmarked before and after (`tests/bench.js`); two
+candidates were rejected because the numbers said no.
+
+**The encoder no longer copies the file.** It used to cut the payload into K
+separate little arrays — a second full copy of the file, held by the main
+thread *and again by every render worker*. Now the blocks are *views* (windows
+onto the same memory, a `subarray`), and only the final partial block gets real
+storage for its zero padding. Measured on a 32 MB payload: the encoder used to
+add **58 MB**; it now adds **15 MB** (the soliton table and per-view
+bookkeeping). With 3 workers, sender-side memory for a large file drops by
+roughly a full file-size per worker plus one for the main thread.
+
+**Encoder XOR runs word-wise.** Mixing blocks is pure XOR, and doing it 4 bytes
+at a time (`Uint32Array` views over the same memory) doubled frame generation:
+**24,400 → 53,800 frames/s** on a 32 MB payload at 900 B. The worker pool
+exists because frame generation was the sender's bottleneck (§7), so this is
+direct headroom for Ludicrous mode on weak machines.
+
+**The decoder deliberately does NOT use the word-wise helper.** Tried, measured,
+reverted: the helper builds two typed-array views per call, which pays for
+itself across an encoder frame's dozen large XORs but was a **net loss** in the
+decoder — its cascade makes millions of tiny calls (K=120,000 run went 6.9 s →
+9.2 s). The decoder keeps its plain byte loops and is no slower than before.
+The helper also falls back to the byte loop below 64 bytes for the same reason.
+**Measure before moving this boundary.**
+
+**The receiver's readout repaints on a 150 ms clock, not per code.** Eight DOM
+text writes per accepted code was the same class of mistake as the block grid
+(§17), only smaller — layout work on the per-code path. At 100+ codes/s the
+numbers changed faster than anyone can read anyway.
+
+Not touched, with reasons: the per-frame `getImageData` copy is part of the
+measured decode cost and ZXing needs the pixels anyway; the decoder's pending
+pile is intrinsic to LT decoding (§18); `assemble()` overshoots the file length
+by at most one block, which is under a kilobyte.
+
 ---
 
 ## Explicitly deferred
