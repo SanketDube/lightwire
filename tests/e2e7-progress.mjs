@@ -90,6 +90,70 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
   await page.close();
 }
 
+/* ---- mask reuse must not cost a single decode ----
+   qrcode-generator builds each code nine times, eight of them scoring mask
+   patterns. Lightwire searches once and reuses. This is the regression guard:
+   codes built the reused way must decode exactly as the searched way, over a
+   range of degradation down to the readable floor. */
+{
+  const page = await browser.newPage();
+  await page.goto(URL);
+  const r = await page.evaluate(async () => {
+    await window.__engine();
+    const payload = new Uint8Array(1024 * 1024);
+    let s = 0x1f2e3d4c;
+    for (let i = 0; i < payload.length; i++) { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; s >>> 0; payload[i] = s & 255; }
+    const enc = LW.makeEncoder(payload, 900, 0x1234, 0);
+    const texts = []; for (let i = 1; i <= 24; i++) texts.push(LW.base45Encode(enc.frame(i)));
+    const mk = (t, reuse, st) => {
+      const q = qrcode(0, "L"); q.addData(t, "Alphanumeric");
+      if (!reuse) q.make();
+      else if (st.m < 0) st.m = q.makeAndGetMask();
+      else q.makeWithMask(st.m);
+      return q;
+    };
+    const render = (q, shrink) => {
+      const n = q.getModuleCount(), pad = 4, size = n + pad * 2, S = 4;
+      const c = document.createElement("canvas"); c.width = c.height = size * S;
+      const g = c.getContext("2d", { willReadFrequently: true });
+      g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.fillStyle = "#000";
+      for (let r2 = 0; r2 < n; r2++) for (let cc = 0; cc < n; cc++)
+        if (q.isDark(r2, cc)) g.fillRect((cc + pad) * S, (r2 + pad) * S, S, S);
+      const sm = document.createElement("canvas");
+      sm.width = sm.height = Math.max(24, c.width * shrink | 0);
+      sm.getContext("2d").drawImage(c, 0, 0, sm.width, sm.height);
+      g.drawImage(sm, 0, 0, c.width, c.height);
+      const img = g.getImageData(0, 0, c.width, c.height);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const nz = (Math.random() * 56 - 28) | 0;
+        img.data[i] += nz; img.data[i + 1] += nz; img.data[i + 2] += nz;
+      }
+      return { img, ppm: +(sm.width / size).toFixed(2) };
+    };
+    const trial = async (reuse, shrink) => {
+      const st = { m: -1 }; let ok = 0, ppm = 0;
+      for (const t of texts) {
+        const rr = render(mk(t, reuse, st), shrink); ppm = rr.ppm;
+        const z = await ZXingWASM.readBarcodes(rr.img, { formats: ["QRCode"], tryHarder: true, tryRotate: false, tryDownscale: false });
+        if (z.length && z[0].text === t) ok++;
+      }
+      return { ok, ppm, mask: st.m };
+    };
+    const rows = [];
+    for (const sh of [0.95, 0.78, 0.66]) {
+      const a = await trial(false, sh), b = await trial(true, sh);
+      rows.push({ ppm: a.ppm, searched: a.ok, reused: b.ok, mask: b.mask });
+    }
+    return { rows, n: texts.length };
+  });
+  for (const row of r.rows)
+    ok(`mask reuse decodes as well as the search at ${row.ppm} px/module`,
+       row.reused >= row.searched,
+       `searched ${row.searched}/${r.n}, reused ${row.reused}/${r.n} (mask ${row.mask})`);
+  ok("a mask was actually chosen and reused", r.rows.every((x) => x.mask >= 0 && x.mask <= 7));
+  await page.close();
+}
+
 /* ---- the file saves itself once it is complete ----
    After an hour of streaming, needing one more click to keep the file is a way
    to lose it. The button stays as a fallback because a browser may refuse a

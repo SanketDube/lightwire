@@ -7,15 +7,32 @@ those licences require.
 Lightwire's own code — `src/core.js`, `src/template.html`, `src/assemble.py`
 and `tests/` — is licensed under Apache-2.0; see `LICENSE`.
 
-**Nothing here is modified.** Each vendored file is redistributed byte for byte
-as obtained from upstream. Verified 2026-08-10:
+**One file is modified; the rest are byte for byte as obtained from upstream.**
+Verified 2026-08-10, amended 2026-08-12:
 
 | Component | Version | Licence | Bundled as |
 |---|---|---|---|
-| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | vendored | MIT | `src/vendor/qrcode-generator.js` |
+| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | vendored | MIT | `src/vendor/qrcode-generator.js` — **MODIFIED, see below** |
 | [jsQR](https://github.com/cozmo/jsQR) | 1.4.0 | Apache-2.0 | `src/vendor/jsQR.js` |
 | [zxing-wasm](https://github.com/Sec-ant/zxing-wasm) (JS glue) | 2.2.4 | MIT | `src/vendor/zx-reader.js` |
 | [ZXing-C++](https://github.com/zxing-cpp/zxing-cpp) (compiled engine) | commit `fba4e95…` | Apache-2.0 | `src/vendor/zxing_reader.wasm` |
+
+### Modification to qrcode-generator
+
+`src/vendor/qrcode-generator.js` has **two methods added** by this project on
+2026-08-12: `makeAndGetMask()` and `makeWithMask(pattern)`. Nothing existing
+was altered — `make()` and every other public method behave exactly as
+upstream, and the original copyright header is intact. The addition is marked
+in the file between `LIGHTWIRE MODIFICATION` comments.
+
+Reason: `make()` builds each QR code nine times, eight of those to score mask
+patterns. Lightwire generates thousands of codes per transfer from
+statistically identical data, so the added methods let it run that search once
+and reuse the answer. Measured effect: 3.8x more codes per second on the
+sending machine. See `docs/DECISIONS.md` §22.
+
+The MIT licence permits modification; this notice records it so nobody has to
+diff the file to discover it.
 
 Provenance of the WebAssembly binary:
 

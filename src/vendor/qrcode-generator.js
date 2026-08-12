@@ -452,6 +452,46 @@ var qrcode = function() {
       makeImpl(false, getBestMaskPattern() );
     };
 
+    /* ---- LIGHTWIRE MODIFICATION (2026-08-12) ----
+       Two methods added. Nothing existing was changed; make() is untouched.
+
+       Why: make() builds the code NINE times -- eight to score mask patterns
+       plus one final -- and that search is 86% of the cost of generating a
+       code (26.7 ms of 26.7, measured at 900 B). Lightwire generates thousands
+       of codes per transfer from data that is statistically identical frame to
+       frame (a fountain mix of the same file), so the search finds the same
+       answer over and over. These let the caller search once and reuse the
+       result. See docs/DECISIONS.md #22. */
+    var prepareType = function() {
+      if (_typeNumber >= 1) return;
+      var typeNumber = 1;
+      for (; typeNumber < 40; typeNumber++) {
+        var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+        var buffer = qrBitBuffer();
+        for (var i = 0; i < _dataList.length; i++) {
+          var data = _dataList[i];
+          buffer.put(data.getMode(), 4);
+          buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+          data.write(buffer);
+        }
+        var totalDataCount = 0;
+        for (var j = 0; j < rsBlocks.length; j++) totalDataCount += rsBlocks[j].dataCount;
+        if (buffer.getLengthInBits() <= totalDataCount * 8) break;
+      }
+      _typeNumber = typeNumber;
+    };
+    _this.makeAndGetMask = function() {
+      prepareType();
+      var p = getBestMaskPattern();
+      makeImpl(false, p);
+      return p;
+    };
+    _this.makeWithMask = function(maskPattern) {
+      prepareType();
+      makeImpl(false, maskPattern & 7);
+    };
+    /* ---- end LIGHTWIRE MODIFICATION ---- */
+
     _this.createTableTag = function(cellSize, margin) {
 
       cellSize = cellSize || 2;

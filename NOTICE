@@ -20,6 +20,9 @@ Components licensed under the Apache License, Version 2.0:
 Components licensed under the MIT licence:
 
   - qrcode-generator — Copyright (c) 2009 Kazuhiko Arase
+    MODIFIED by this project on 2026-08-12: two methods added
+    (makeAndGetMask, makeWithMask). Nothing existing was altered. The
+    change is marked in the file and explained in THIRD-PARTY-NOTICES.md.
   - zxing-wasm — Copyright (c) 2023 Ze-Zheng Wu
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.

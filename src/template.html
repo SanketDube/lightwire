@@ -361,10 +361,16 @@ document.addEventListener("visibilitychange",function(){
 });
 
 /* ---------- shared: draw a QR onto a canvas (low-rate paths: ACK, worker fallback) ---------- */
+var mainMask={}, mainMaskN=0;
 function drawQR(canvas,text,ecc){
   var q=qrcode(0,ecc||"L");
   q.addData(text,"Alphanumeric");
-  q.make();
+  /* same reuse as the workers; keyed by ECC level, and the ACK code's own
+     rare draws simply re-search whenever the key is cold */
+  var k=(ecc||"L")+":"+text.length;
+  if(mainMask[k]===undefined||(mainMaskN%64)===0) mainMask[k]=q.makeAndGetMask();
+  else q.makeWithMask(mainMask[k]);
+  mainMaskN++;
   var n=q.getModuleCount(), pad=2, size=n+pad*2;
   canvas.width=size; canvas.height=size;
   var g=canvas.getContext("2d");
@@ -487,16 +493,27 @@ var ackLoop=null,ackBusy=false;
 
 /* ----- the frame factory: workers pre-render QR frames so the paint loop never blocks ----- */
 var WORKER_TAIL=[
-"var ENC=null,GEN=0,STRIDE=1,SEED=1,ECCL='L';",
+"var ENC=null,GEN=0,STRIDE=1,SEED=1,ECCL='L',MASK=-1,MASKN=0;",
 "onmessage=function(ev){var m=ev.data;",
 " if(m.type==='init'){GEN=m.gen;ECCL=m.ecc;STRIDE=m.stride;SEED=m.start;",
+"   MASK=-1;MASKN=0;",
 "   ENC=LW.makeEncoder(new Uint8Array(m.payload),m.blockSize,m.session,m.flags);return;}",
 " if(m.type==='gen'&&ENC&&m.gen===GEN){",
 "   for(var i=0;i<m.n;i++){",
 "     var seed=SEED; SEED+=STRIDE;",
 "     var frame=ENC.frame(seed);",
 "     var text=LW.base45Encode(frame);",
-"     var q=qrcode(0,ECCL); q.addData(text,'Alphanumeric'); q.make();",
+"     var q=qrcode(0,ECCL); q.addData(text,'Alphanumeric');",
+/* Search the mask once, then reuse it. The search is 86% of the cost of
+   building a code, and it is answering the same question every time: every
+   frame is a fountain mix of the same file, so the data is statistically
+   identical frame to frame. Re-searched every 64 codes so a genuine change in
+   the data would still be picked up. Measured: 26.7 ms -> 3.6-4.9 ms per code.
+   Decode reliability was checked across 1,500 renders from 3.8 down to 2.56
+   px/module with blur and sensor noise -- no difference from the full search
+   at any level. See docs/DECISIONS.md #22. */
+"     if(MASK<0||(MASKN%64)===0){MASK=q.makeAndGetMask();}else{q.makeWithMask(MASK);}",
+"     MASKN++;",
 "     var n=q.getModuleCount(),pad=4,size=n+pad*2;",
 "     var rgba=new Uint8ClampedArray(size*size*4);",
 "     rgba.fill(255);",

@@ -467,6 +467,59 @@ measured decode cost and ZXing needs the pixels anyway; the decoder's pending
 pile is intrinsic to LT decoding (§18); `assemble()` overshoots the file length
 by at most one block, which is under a kilobyte.
 
+## 22. Search the QR mask once per session, not once per code
+
+This is the largest speed change the project has had, and it came from asking
+where the sender's time actually goes. Measured per code at 900 B:
+
+| | |
+|---|---|
+| LT block mixing | 0.016 ms (0.07%) |
+| base45 encode | 0.017 ms (0.07%) |
+| **building the QR** | **23.7 ms (99.86%)** |
+
+Everything §21 optimised was in the first 0.14%. The whole cost is
+`qrcode-generator`'s `make()`, and the reason is worth knowing: **it builds the
+code nine times.** A QR code applies one of eight *mask patterns* — a stencil
+XORed over the data to break up large same-colour areas that confuse scanners —
+and the specification says to try all eight and score each one. So `make()`
+constructs the full code eight times, scores each with a penalty function, then
+builds it a ninth time with the winner.
+
+That search is answering the same question thousands of times. Every frame
+Lightwire sends is a fountain mix of the same file: statistically identical
+data, frame after frame. So: **search once, reuse the answer, re-search every
+64 codes** in case the data genuinely changes.
+
+Measured on the real sender path, per core, at 900 B:
+
+| | codes/s |
+|---|---|
+| before | 48 |
+| after | 183 |
+
+**3.8x.** Across three workers that is 144 → 550 codes/s. At the operator's
+3×3 / 15 swaps setting the sender was producing 144 against 135 needed — a 6%
+margin, meaning a slightly busier machine *would* have been the bottleneck. It
+now has room for about 61 swaps/s at 3×3, which takes the sender out of the
+picture entirely and leaves the receiver's ~187 codes/s (§19) as the limit.
+
+**The reliability question was the whole risk, and it was tested rather than
+argued.** The mask actually used is recorded in the code's own format bits, so
+any decoder reads it correctly either way; the danger is that a poorly chosen
+mask creates a pattern resembling a finder marker. Over 1,500 renders with blur
+and sensor noise, from 3.8 down to 2.56 px/module — the readable floor is
+about 3 — every fixed mask decoded **identically to the searched mask at every
+level**. No difference was detectable. `tests/e2e7-progress.mjs` keeps a
+regression guard on this.
+
+**It required modifying a vendored library**, which the project had until now
+avoided. Two methods were *added* to `qrcode-generator` (`makeAndGetMask`,
+`makeWithMask`); nothing existing was touched, the copyright header is intact,
+the change is fenced in marker comments, and `NOTICE` and
+`THIRD-PARTY-NOTICES.md` both record it. The MIT licence permits this; the
+notices exist so nobody has to diff the file to find out.
+
 ---
 
 ## Explicitly deferred
