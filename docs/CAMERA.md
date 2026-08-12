@@ -213,6 +213,18 @@ A 720p laptop camera has two-thirds the pixel budget: 2×2 at 1000 B lands aroun
 3.1, right on the edge. Many laptop cameras are also fixed-focus beyond ~40 cm,
 which in practice bites harder than resolution.
 
+## Match the grid to the sensor
+
+The camera can only move closer until the grid's largest dimension fills the
+frame. A square grid on a wide sensor leaves the sides of the sensor empty —
+44% of a 16:9 sensor's pixels buy nothing. The **Arrangement** control lays the
+same codes out to match: wide (4×2) for laptop and desktop webcams, tall (2×4)
+for a portrait phone, auto to follow the sender's own screen. Geometry says a
+4×2 carries 158% of a 3×3's optical capacity on a 1080p sensor, with one fewer
+code to draw; the calibration ladder includes wide rungs so this gets measured
+rather than assumed. Beware over-widening: past the sensor's own ratio it
+reverses hard (a single row of 9 is 35% of the square). `DECISIONS.md` §23.
+
 ## Tuning protocol
 
 **The tool does this for you now.** The manual method is kept below because it

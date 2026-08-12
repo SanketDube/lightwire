@@ -15,6 +15,7 @@ Captured from headless test runs (no real camera involved).
 | `shot6-calibrating.png` | Sender: mid-sweep, showing the codes it is actually managing to paint, with Hold and Next available on every setting. |
 | `shot6-cal-results.png` | Sender: the ladder with per-setting paint rates, two settings flagged sender-limited, and the receiver's verdict arrived over the ACK channel. |
 | `shot6-recv-verdict.png` | Receiver: all six settings scored, the winner picked on measured KB/s rather than code rate, and the prediction marked as a prediction. |
+| `shot8-wide.png` | Sender: the 4×2 wide arrangement — the same codes laid out to match a 16:9 camera, worth +58% optical capacity over the square by geometry. |
 | `shot7-bigfile.png` | Receiver on a 12.57 MB transfer (16,476 blocks) in an 800 px window: the whole screen fits, and the estimate reads 44% while only 33 blocks are actually solved — the reason the block grid was replaced. |
 
 The `shot6-*` figures come from a simulated optical link — frames are handed to

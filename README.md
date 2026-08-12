@@ -113,8 +113,9 @@ it does two things. First it shows a steady pattern and waits, with no clock
 running, while you aim: move the camera, change the angle, pin the focus, and
 watch **px/module** respond on the receiving screen. That part matters more
 than any setting — one focus adjustment was worth 31% on a real transfer. Then
-press *Start sweep* and it walks eight settings, twelve seconds each, and you
-can **hold** any of them while you keep adjusting. The receiving screen names
+press *Start sweep* and it walks eight settings — including wide layouts that
+match a 16:9 camera, which geometry says are worth ~58% over a square grid —
+twelve seconds each, and you can **hold** any of them while you keep adjusting. The receiving screen names
 the winner in plain language and the sending screen gives you a button to adopt
 it.
 
@@ -214,7 +215,7 @@ the SHA-256 of its asset in the release notes. Compare before opening:
 
 ```bash
 sha256sum lightwire.html
-# v3.3.2: f64176623496e8af1ef435316d590dd5e795d42ae2aff699f8425e6239df2c85
+# v3.4.0: 995c84a1aa332db1d7061163b774af0cb6dc395dbd799ddc96612cbc2c63621f
 ```
 
 Building from source reproduces the same file — `assemble.py` is string

@@ -21,6 +21,11 @@ and the headless test suite passes. Three build generations happened:
    by an estimated progress bar, ACK code moved above anything that grows with
    the file, and the input ceiling raised from a guessed 32 MB to a measured
    512 MB with a warning above 64 MB. `DECISIONS.md` §17 and §18.
+7. **v3.4 (2026-08-12)** — rectangular arrangements: the grid can match the
+   sensor's shape (4×2 wide, 2×4 tall, auto from the sender's screen), worth
+   +58% optical capacity on a 16:9 camera by geometry; ladder gained wide
+   rungs; fullscreen honours the grid's aspect. From the operator's own
+   observation. `DECISIONS.md` §23.
 6. **v3.3 (2026-08-10)** — six more field runs, including 300 MB three times
    and a best of **90.0 KB/s**. Decoder options tuned on measurement (24% off
    decode time), two-phase calibration (aim, then sweep, with Hold and Next),

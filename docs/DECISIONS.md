@@ -520,6 +520,53 @@ the change is fenced in marker comments, and `NOTICE` and
 `THIRD-PARTY-NOTICES.md` both record it. The MIT licence permits this; the
 notices exist so nobody has to diff the file to find out.
 
+## 23. Match the grid's shape to the sensor, not to a square
+
+Field observation, from the operator: *"I would have been able to move the
+camera much closer if the QRs were placed in horizontal arrangement instead of
+square."* That is exactly right, and the geometry says it is worth more than
+any code-level change available.
+
+A camera cannot move closer than the point where the grid's LARGEST dimension
+fills the frame. A square grid on a 16:9 sensor hits that limit vertically
+while a 44%-wide band of sensor sits empty on either side — pixels bought and
+thrown away. Measured as optical capacity (cells × span², span = camera pixels
+across one cell, 1920×1080 sensor):
+
+| Arrangement | Cells | Span | Capacity vs 3×3 |
+|---|---|---|---|
+| 3×3 | 9 | 360 px | 100% |
+| **4×2** | **8** | **480 px** | **158%** |
+| 2×1 | 2 | 960 px | 158% |
+| 9×1 | 9 | 213 px | **35%** |
+
+Two things fall out. **4×2 beats 3×3 by 58% with one fewer code to draw.** And
+"wider is better" is false past the sensor's own ratio — a single row is the
+worst layout tested. The rule is: match the arrangement's aspect to the
+sensor's. On a portrait phone the mirror holds (2×4).
+
+Implementation choices:
+
+- **The protocol does not know arrangements exist.** Every cell is an
+  independent fountain frame; the receiver reads codes wherever they appear in
+  the image. Arrangement is pure sender presentation — no version bump, no
+  header change, nothing for old builds to misread.
+- **The density slider stays; a shape control joins it** (auto / wide / square
+  / tall). Auto matches the sender's own screen, because the screen showing the
+  codes and the webcam pointed at it are nearly always the same shape. Wide
+  maps densities to 2×1 / 3×2 / 4×2, tall to the mirror.
+- **Fullscreen now honours the grid's aspect.** The old fullscreen forced a
+  square, which wasted the sender's monitor exactly the way the square grid
+  wasted the sensor.
+- **The calibration ladder gained wide rungs** (4×2 at 900 and 1200 B) and is
+  written as concrete columns×rows, because sender and receiver must agree on
+  what a rung number means without sharing the shape setting. On a portrait
+  camera the wide rungs will simply lose the ranking — that is the sweep
+  working. The ACK's arrangement digit packs `(cols-1)*4+(rows-1)`.
+
+Not measured optically yet: the 158% is geometry, not a field run. The wide
+rungs in the sweep are how it gets measured.
+
 ---
 
 ## Explicitly deferred
