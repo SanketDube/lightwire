@@ -23,10 +23,11 @@ The per-camera *forecast tables* in the docs are still forecasts and still say
 so; one of them has already been retracted as too pessimistic. Download-only: there is no hosted demo, so
 nobody is asked to trust a server for an air-gap tool.
 
-> **Built by prompting, not by typing code.** I am not a programmer. Lightwire
-> was designed and written by **Claude Code**, from my prompts, over a handful
-> of sessions — the credit for the code belongs there. I started it because I
-> went looking for a tool that did this well and could not find one.
+> **Built by prompting, not by typing code.** I am not a programmer. Every line
+> of code was written by **Claude Code**; the concept, the product decisions,
+> the field testing that found the real bugs, and several of the ideas that
+> shaped how it works are mine. I started it because I went looking for a tool
+> that did this well and could not find one.
 > Full story at the bottom: [Who made this, and how](#who-made-this-and-how).
 
 ---
@@ -239,13 +240,35 @@ the projects that informed the design are credited under "Prior art" in
 
 ## Who made this, and how
 
-I am not a coder. I cannot write JavaScript, and I did not write any of this.
+I am not a coder. I cannot write JavaScript, and I did not write any of this
+code. Every line in this repository was produced by
+**[Claude Code](https://claude.com/claude-code)** working from my prompts — the
+codec, the fountain coding, the worker pipeline, the barcode engine cascade,
+the tests, and most of these docs. The implementation credit is Claude's,
+entirely.
 
-Every line in this repository was produced by **[Claude Code](https://claude.com/claude-code)**
-working from my prompts — the codec, the fountain coding, the worker pipeline,
-the barcode engine cascade, the tests, and most of these docs. My part was
-deciding what it should do, saying when the answer was not good enough, and
-knowing what "good enough" looked like. The engineering credit is Claude's.
+What I brought turned out to be the other half of engineering, and it is worth
+naming because none of it is typing code: the concept, the product decisions,
+and — once the tool existed — **the field work**. Every real-hardware
+measurement in `docs/CAMERA.md` is from my runs. Several of them changed the
+software:
+
+| Found in the field | Became |
+|---|---|
+| Moved 300 MB after hand-raising the 32 MB cap, twice | The cap was a guess; replaced with a measured 512 MB ceiling and an informed warning |
+| "It slowed to 10–15% of usual speed near the end" | A real throughput bug: a display drawing 393,217 rectangles per received code. Found because I reported it |
+| A screenshot reading 141.5 codes/s | Physically impossible (the ceiling was 135) — the rate measurement itself was wrong and is now fixed |
+| "Camera angle and focus matter more than settings" | Calibration now has an aiming phase that waits for you, after one focus adjustment measured +31% |
+| "The sweep ends too soon" | Longer rungs, and Hold/Next controls |
+| A screenshot showing px/module 3.0 labelled "too dense" on a working transfer | The verdict and the number it sat beside disagreed; fixed |
+| "The file should save itself when complete" | It does |
+| **"I could have moved the camera closer if the codes were arranged horizontally"** | The arrangement feature: matching the grid to the sensor's shape is worth **+58% optical capacity** by geometry — the largest single improvement identified since the engine swap, and it was an observation, not a prompt |
+
+The pattern, if you are thinking of building something this way: the model
+wrote all the code and caught none of these. They were all found by using the
+thing for real and saying precisely what happened. That division of labour —
+implementation on one side; intent, judgement and observation on the other —
+is the actual answer to "how was this made".
 
 I started it for the ordinary reason: **I went looking for a tool that moved a
 file across an air gap with a screen and a camera, and everything I found was
